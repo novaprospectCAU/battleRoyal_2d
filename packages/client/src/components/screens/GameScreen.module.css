@@ -46,17 +46,17 @@
 
 .topRight {
   position: absolute;
-  top: 16px;
-  right: 16px;
+  top: 12px;
+  right: 145px; /* 미니맵(120px) + margin(10px) + 간격(15px) */
 }
 
 .fpsCounter {
-  padding: 4px 12px;
-  font-size: 12px;
+  padding: 4px 10px;
+  font-size: 11px;
   font-family: monospace;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.5);
   color: #4ade80;
-  border-radius: 4px;
+  border-radius: 3px;
 }
 
 .bottomCenter {

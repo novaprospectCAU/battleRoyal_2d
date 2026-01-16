@@ -1094,7 +1094,7 @@ export class Game {
     // HUD: 킬로그 (우측 미니맵 아래)
     this.renderer.drawKillFeed(this.killLogs, rect.width);
     
-    // FPS 업데이트
+    // FPS 업데이트 (React UI에서 표시)
     this.currentFps = this.gameLoop.getCurrentFps();
   }
 
