@@ -2,6 +2,7 @@ import { GameLoop } from './GameLoop';
 import { Renderer } from './Renderer';
 import { Camera } from '../world/Camera';
 import { TileMap } from '../world/TileMap';
+import { Zone } from '../world/Zone';
 import { InputManager } from '../input/InputManager';
 import { Player } from '../entities/Player';
 import { Projectile, generateProjectileId } from '../entities/Projectile';
@@ -26,6 +27,7 @@ export class Game {
   private camera: Camera;
   private inputManager: InputManager;
   private tileMap: TileMap;
+  private zone: Zone;
 
   // 플레이어
   private localPlayer: Player;
@@ -64,6 +66,12 @@ export class Game {
 
     // 타일맵 생성 (먼저)
     this.tileMap = new TileMap();
+    
+    // 자기장 생성
+    this.zone = new Zone(
+      this.tileMap.getPixelWidth(),
+      this.tileMap.getPixelHeight()
+    );
 
     // 시스템 초기화
     this.renderer = new Renderer(canvas);
@@ -362,6 +370,28 @@ export class Game {
     
     // 투사체 업데이트
     this.updateProjectiles(dt);
+    
+    // 자기장 업데이트
+    this.zone.update();
+    
+    // 자기장 밖 데미지 적용
+    this.applyZoneDamage(dt);
+  }
+
+  /** 자기장 밖 데미지 적용 */
+  private applyZoneDamage(dt: number): void {
+    const dps = this.zone.getDamagePerSecond();
+    if (dps <= 0) return;
+    
+    const damage = dps * (dt / 1000);
+    
+    for (const player of this.players.values()) {
+      if (!player.isAlive) continue;
+      
+      if (!this.zone.isInSafeZone(player.x, player.y)) {
+        player.takeDamage(damage);
+      }
+    }
   }
 
   /** 발사 처리 */
@@ -616,6 +646,14 @@ export class Game {
     // 맵 경계 그리기
     this.renderer.drawMapBorder(mapWidth, mapHeight);
     
+    // 자기장 그리기
+    this.renderer.drawZone(
+      this.zone.getCurrentZone(),
+      this.zone.getTargetZone(),
+      mapWidth,
+      mapHeight
+    );
+    
     // 투사체 그리기
     for (const proj of this.projectiles) {
       this.renderer.drawProjectile(proj, alpha);
@@ -674,6 +712,28 @@ export class Game {
         rect.height
       );
     }
+    
+    // HUD: 자기장 상태 (상단 중앙)
+    this.renderer.drawZoneHUD(
+      this.zone.getCurrentPhase(),
+      this.zone.getState(),
+      this.zone.getTimeRemaining(),
+      rect.width
+    );
+    
+    // HUD: 미니맵 (우측 상단)
+    const mapData = this.tileMap.getMap();
+    this.renderer.drawMinimap(
+      this.localPlayer.x,
+      this.localPlayer.y,
+      this.zone.getCurrentZone(),
+      this.zone.getTargetZone(),
+      mapWidth,
+      mapHeight,
+      rect.width,
+      mapData.tiles,
+      mapData.tileSize
+    );
     
     // FPS 업데이트
     this.currentFps = this.gameLoop.getCurrentFps();

@@ -3,3 +3,4 @@
 export * from "./map.js";
 export * from "./game.js";
 export * from './weapons.js';
+export * from './zone.js';
