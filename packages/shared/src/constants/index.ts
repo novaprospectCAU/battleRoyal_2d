@@ -1,2 +1,4 @@
 // Constants exports
-export * from './game.js';
+// map.ts를 먼저 export (game.ts에서 참조)
+export * from "./map.js";
+export * from "./game.js";

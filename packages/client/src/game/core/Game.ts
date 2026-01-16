@@ -1,12 +1,13 @@
 import { GameLoop } from './GameLoop';
 import { Renderer } from './Renderer';
 import { Camera } from '../world/Camera';
+import { TileMap } from '../world/TileMap';
 import { InputManager } from '../input/InputManager';
 import { Player } from '../entities/Player';
 import { 
-  DEFAULT_GAME_CONFIG, 
   PLAYER_CONFIG,
   RENDER_CONFIG,
+  TILE_SIZE,
 } from '@battle-royal/shared';
 
 /**
@@ -19,6 +20,7 @@ export class Game {
   private gameLoop: GameLoop;
   private camera: Camera;
   private inputManager: InputManager;
+  private tileMap: TileMap;
 
   // 플레이어
   private localPlayer: Player;
@@ -34,6 +36,9 @@ export class Game {
     // 캔버스 초기화
     this.setupCanvas();
 
+    // 타일맵 생성 (먼저)
+    this.tileMap = new TileMap();
+
     // 시스템 초기화
     this.renderer = new Renderer(canvas);
     this.camera = new Camera(
@@ -46,11 +51,12 @@ export class Game {
       this.render.bind(this)
     );
 
-    // 로컬 플레이어 생성 (맵 중앙)
+    // 로컬 플레이어 생성 (랜덤 스폰)
+    const spawn = this.tileMap.getRandomSpawn();
     this.localPlayer = new Player(
       'local-player',
-      DEFAULT_GAME_CONFIG.mapWidth / 2,
-      DEFAULT_GAME_CONFIG.mapHeight / 2,
+      spawn.x,
+      spawn.y,
       true
     );
     this.players.set(this.localPlayer.id, this.localPlayer);
@@ -138,20 +144,20 @@ export class Game {
       player.update(dt);
     }
     
-    // 맵 경계 체크
-    this.clampPlayerToMap(this.localPlayer);
+    // 벽 충돌 처리
+    this.handlePlayerCollision(this.localPlayer);
   }
 
   /** 매 프레임 렌더링 (가변 시간) */
   private render(alpha: number): void {
     const rect = this.canvas.getBoundingClientRect();
+    const map = this.tileMap.getMap();
+    const mapWidth = this.tileMap.getPixelWidth();
+    const mapHeight = this.tileMap.getPixelHeight();
     
     // 카메라 업데이트 (렌더링 단계에서 보간된 위치 따라가기)
     this.camera.updateSmooth(alpha);
-    this.camera.clampToMap(
-      DEFAULT_GAME_CONFIG.mapWidth,
-      DEFAULT_GAME_CONFIG.mapHeight
-    );
+    this.camera.clampToMap(mapWidth, mapHeight);
     
     // 배경 클리어
     this.renderer.clear(rect.width, rect.height);
@@ -159,18 +165,14 @@ export class Game {
     // 카메라 변환 적용
     this.renderer.beginCamera(this.camera);
     
-    // 맵 그리기 (그리드)
-    this.renderer.drawGrid(
-      DEFAULT_GAME_CONFIG.mapWidth,
-      DEFAULT_GAME_CONFIG.mapHeight,
-      64
-    );
+    // 타일맵 그리기
+    this.renderer.drawTileMap(map, this.camera, rect.width, rect.height);
+    
+    // 그리드 (타일 단위, 옵션)
+    this.renderer.drawGrid(mapWidth, mapHeight, TILE_SIZE);
     
     // 맵 경계 그리기
-    this.renderer.drawMapBorder(
-      DEFAULT_GAME_CONFIG.mapWidth,
-      DEFAULT_GAME_CONFIG.mapHeight
-    );
+    this.renderer.drawMapBorder(mapWidth, mapHeight);
     
     // 플레이어들 그리기
     for (const player of this.players.values()) {
@@ -184,15 +186,20 @@ export class Game {
     this.currentFps = this.gameLoop.getCurrentFps();
   }
 
-  /** 플레이어를 맵 경계 안으로 제한 */
-  private clampPlayerToMap(player: Player): void {
+  /** 플레이어 벽 충돌 처리 */
+  private handlePlayerCollision(player: Player): void {
     const radius = PLAYER_CONFIG.radius;
-    const mapW = DEFAULT_GAME_CONFIG.mapWidth;
-    const mapH = DEFAULT_GAME_CONFIG.mapHeight;
     
-    if (player.x < radius) player.x = radius;
-    if (player.x > mapW - radius) player.x = mapW - radius;
-    if (player.y < radius) player.y = radius;
-    if (player.y > mapH - radius) player.y = mapH - radius;
+    // 타일맵 충돌 해결
+    const result = this.tileMap.resolveCircleCollision(
+      player.x,
+      player.y,
+      radius
+    );
+    
+    if (result.collided) {
+      player.x = result.x;
+      player.y = result.y;
+    }
   }
 }

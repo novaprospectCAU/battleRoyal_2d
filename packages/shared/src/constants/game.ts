@@ -1,10 +1,12 @@
 import type { GameConfig } from '../types/game.js';
 
+import { MAP_WIDTH_PX, MAP_HEIGHT_PX } from './map.js';
+
 /** 기본 게임 설정 */
 export const DEFAULT_GAME_CONFIG: GameConfig = {
   maxPlayers: 32,
-  mapWidth: 2000,
-  mapHeight: 2000,
+  mapWidth: MAP_WIDTH_PX,  // 64 * 32 = 2048
+  mapHeight: MAP_HEIGHT_PX,
   tickRate: 20, // 20 Hz
 };
 

@@ -1,4 +1,10 @@
-import { DEBUG_COLORS, PLAYER_CONFIG } from '@battle-royal/shared';
+import { 
+  DEBUG_COLORS, 
+  PLAYER_CONFIG,
+  TileType,
+  TILE_COLORS,
+  type GameMap,
+} from '@battle-royal/shared';
 import type { Camera } from '../world/Camera';
 import type { Player } from '../entities/Player';
 
@@ -47,9 +53,89 @@ export class Renderer {
     this.ctx.restore();
   }
 
-  /** 그리드 그리기 */
+  /** 타일맵 그리기 (카메라 범위만) */
+  drawTileMap(map: GameMap, camera: Camera, viewWidth: number, viewHeight: number): void {
+    const tileSize = map.tileSize;
+    
+    // 카메라 범위 내 타일만 렌더링 (최적화)
+    const startX = Math.max(0, Math.floor(camera.x / tileSize));
+    const startY = Math.max(0, Math.floor(camera.y / tileSize));
+    const endX = Math.min(map.width, Math.ceil((camera.x + viewWidth) / tileSize) + 1);
+    const endY = Math.min(map.height, Math.ceil((camera.y + viewHeight) / tileSize) + 1);
+    
+    for (let y = startY; y < endY; y++) {
+      for (let x = startX; x < endX; x++) {
+        const tile = map.tiles[y][x];
+        this.drawTile(x, y, tile, tileSize);
+      }
+    }
+  }
+
+  /** 개별 타일 그리기 */
+  private drawTile(gridX: number, gridY: number, tile: TileType, tileSize: number): void {
+    const x = gridX * tileSize;
+    const y = gridY * tileSize;
+    
+    // 바닥 색상
+    this.ctx.fillStyle = TILE_COLORS[TileType.FLOOR];
+    this.ctx.fillRect(x, y, tileSize, tileSize);
+    
+    // 타일별 그리기
+    switch (tile) {
+      case TileType.WALL:
+        this.ctx.fillStyle = TILE_COLORS[TileType.WALL];
+        this.ctx.fillRect(x, y, tileSize, tileSize);
+        // 입체감을 위한 테두리
+        this.ctx.strokeStyle = '#5a5a7e';
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeRect(x + 1, y + 1, tileSize - 2, tileSize - 2);
+        break;
+        
+      case TileType.HALF_WALL:
+        // 반벽은 절반 높이로 표현
+        this.ctx.fillStyle = TILE_COLORS[TileType.HALF_WALL];
+        this.ctx.fillRect(x + 4, y + 4, tileSize - 8, tileSize - 8);
+        this.ctx.strokeStyle = '#7a7a9e';
+        this.ctx.lineWidth = 1;
+        this.ctx.strokeRect(x + 4, y + 4, tileSize - 8, tileSize - 8);
+        break;
+        
+      case TileType.DOOR:
+        // 문 (갈색)
+        this.ctx.fillStyle = TILE_COLORS[TileType.DOOR];
+        this.ctx.fillRect(x + 2, y + 2, tileSize - 4, tileSize - 4);
+        // 문 손잡이
+        this.ctx.fillStyle = '#654321';
+        this.ctx.beginPath();
+        this.ctx.arc(x + tileSize - 8, y + tileSize / 2, 3, 0, Math.PI * 2);
+        this.ctx.fill();
+        break;
+        
+      case TileType.WINDOW:
+        // 창문 (하늘색 + 테두리)
+        this.ctx.fillStyle = TILE_COLORS[TileType.WINDOW];
+        this.ctx.fillRect(x + 2, y + 2, tileSize - 4, tileSize - 4);
+        // 창문 격자
+        this.ctx.strokeStyle = '#3a6a7a';
+        this.ctx.lineWidth = 1;
+        this.ctx.beginPath();
+        this.ctx.moveTo(x + tileSize / 2, y + 2);
+        this.ctx.lineTo(x + tileSize / 2, y + tileSize - 2);
+        this.ctx.moveTo(x + 2, y + tileSize / 2);
+        this.ctx.lineTo(x + tileSize - 2, y + tileSize / 2);
+        this.ctx.stroke();
+        break;
+        
+      case TileType.FLOOR:
+      case TileType.EMPTY:
+        // 이미 바닥으로 그렸음
+        break;
+    }
+  }
+
+  /** 그리드 그리기 (옵션) */
   drawGrid(mapWidth: number, mapHeight: number, cellSize: number): void {
-    this.ctx.strokeStyle = DEBUG_COLORS.grid;
+    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
     this.ctx.lineWidth = 1;
     
     // 세로선
@@ -71,7 +157,7 @@ export class Renderer {
 
   /** 맵 경계 그리기 */
   drawMapBorder(mapWidth: number, mapHeight: number): void {
-    this.ctx.strokeStyle = DEBUG_COLORS.wall;
+    this.ctx.strokeStyle = '#ff4444';
     this.ctx.lineWidth = 4;
     this.ctx.strokeRect(0, 0, mapWidth, mapHeight);
   }
