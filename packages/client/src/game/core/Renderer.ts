@@ -5,6 +5,7 @@ import {
   TileType,
   TILE_COLORS,
   ZONE_CONFIG,
+  FOV_CONFIG,
   type GameMap,
   type WeaponDef,
   type UsableItemDef,
@@ -718,6 +719,43 @@ export class Renderer {
     this.ctx.restore();
   }
 
+  /** 자기장 그리기 (FOV 위에, 더 밝게) */
+  drawZoneOverFOV(
+    currentZone: { x: number; y: number; radius: number },
+    targetZone: { x: number; y: number; radius: number },
+    mapWidth: number,
+    mapHeight: number
+  ): void {
+    this.ctx.save();
+    
+    // 자기장 외부 (빨간색 영역, 더 밝게)
+    this.ctx.fillStyle = 'rgba(255, 80, 80, 0.15)';
+    this.ctx.beginPath();
+    this.ctx.rect(0, 0, mapWidth, mapHeight);
+    this.ctx.arc(currentZone.x, currentZone.y, currentZone.radius, 0, Math.PI * 2, true);
+    this.ctx.fill();
+    
+    // 현재 안전 구역 테두리 (더 밝게)
+    this.ctx.beginPath();
+    this.ctx.arc(currentZone.x, currentZone.y, currentZone.radius, 0, Math.PI * 2);
+    this.ctx.strokeStyle = 'rgba(255, 100, 100, 0.8)';
+    this.ctx.lineWidth = 3;
+    this.ctx.stroke();
+    
+    // 다음 안전 구역 (축소 예고, 더 밝게)
+    if (targetZone.radius < currentZone.radius) {
+      this.ctx.beginPath();
+      this.ctx.arc(targetZone.x, targetZone.y, targetZone.radius, 0, Math.PI * 2);
+      this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+      this.ctx.lineWidth = 2;
+      this.ctx.setLineDash([10, 5]);
+      this.ctx.stroke();
+      this.ctx.setLineDash([]);
+    }
+    
+    this.ctx.restore();
+  }
+
   /** 자기장 HUD (화면 상단) */
   drawZoneHUD(
     phase: number,
@@ -954,6 +992,43 @@ export class Renderer {
     });
     
     this.ctx.textAlign = 'left'; // 기본값 복원
+    this.ctx.restore();
+  }
+
+  /**
+   * 시야(FOV) 그리기
+   * 시야 밖 영역을 어둡게 표시
+   */
+  drawFOV(
+    playerX: number,
+    playerY: number,
+    _rotation: number, // 향후 시각적 효과에 사용 가능
+    visionPoints: { x: number; y: number }[],
+    _viewWidth: number,
+    _viewHeight: number
+  ): void {
+    if (visionPoints.length < 2) return;
+
+    this.ctx.save();
+
+    // evenodd fill rule을 사용하여 시야 영역을 제외한 나머지만 채우기
+    // 이렇게 하면 기존에 그린 콘텐츠(타일맵, 플레이어 등)를 지우지 않음
+    const mask = new Path2D();
+
+    // 1. 큰 사각형 (전체 영역) - 시계 방향
+    mask.rect(-10000, -10000, 20000, 20000);
+
+    // 2. 시야 영역 (빼기용) - 반시계 방향으로 추가
+    mask.moveTo(playerX, playerY);
+    for (const point of visionPoints) {
+      mask.lineTo(point.x, point.y);
+    }
+    mask.closePath();
+
+    // evenodd로 시야 영역 제외하고 채우기
+    this.ctx.fillStyle = `rgba(0, 0, 0, ${FOV_CONFIG.shadowOpacity})`;
+    this.ctx.fill(mask, 'evenodd');
+
     this.ctx.restore();
   }
 }

@@ -165,4 +165,48 @@ export class TileMap {
     const index = Math.floor(Math.random() * spawns.length);
     return spawns[index];
   }
+
+  /** 특정 위치가 시야를 차단하는지 확인 */
+  blocksVision(worldX: number, worldY: number): boolean {
+    const tile = this.getTileAt(worldX, worldY);
+    const props = TILE_PROPERTIES[tile];
+    return props.blocksVision;
+  }
+
+  /**
+   * 레이캐스팅으로 시야 끝점 계산
+   * 시야를 차단하는 벽까지의 거리 또는 최대 거리 반환
+   */
+  castVisionRay(
+    startX: number,
+    startY: number,
+    angle: number,
+    maxDistance: number
+  ): { x: number; y: number; distance: number } {
+    const stepSize = 4; // 4px 간격으로 체크
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+    
+    let distance = 0;
+    let x = startX;
+    let y = startY;
+    
+    while (distance < maxDistance) {
+      distance += stepSize;
+      x = startX + dx * distance;
+      y = startY + dy * distance;
+      
+      // 맵 밖 체크
+      if (x < 0 || x >= this.getPixelWidth() || y < 0 || y >= this.getPixelHeight()) {
+        return { x, y, distance };
+      }
+      
+      // 시야 차단 체크
+      if (this.blocksVision(x, y)) {
+        return { x, y, distance };
+      }
+    }
+    
+    return { x, y, distance: maxDistance };
+  }
 }

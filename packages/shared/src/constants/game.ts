@@ -46,3 +46,15 @@ export const DEBUG_COLORS = {
   zone: 'rgba(255, 0, 0, 0.3)',
   zoneBorder: '#ff0000',
 } as const;
+
+/** 시야(FOV) 설정 */
+export const FOV_CONFIG = {
+  /** 시야각 (라디안) - 60도 = π/3 */
+  fovAngle: Math.PI / 3,
+  /** 시야 거리 (픽셀) */
+  viewDistance: 500,
+  /** 레이 개수 (시야 해상도) */
+  rayCount: 120,
+  /** 시야 밖 영역 어둡기 (0~1) */
+  shadowOpacity: 0.5,
+} as const;

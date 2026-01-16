@@ -18,6 +18,7 @@ import {
   USABLE_ITEMS,
   HEAL_OVER_TIME_CONFIG,
   UsableItemType,
+  FOV_CONFIG,
   type WeaponDef,
   type UsableItemDef,
 } from '@battle-royal/shared';
@@ -990,9 +991,24 @@ export class Game {
       this.renderer.drawProjectile(proj, alpha);
     }
     
-    // 플레이어들 그리기
+    // 시야(FOV) 계산 (플레이어 가시성 체크용)
+    const playerPos = this.localPlayer.getInterpolatedPosition(alpha);
+    const playerRot = this.localPlayer.getInterpolatedRotation(alpha);
+    const visionPoints = this.calculateFOV(playerPos.x, playerPos.y, playerRot);
+    
+    // 플레이어들 그리기 (시야 안에 있는 플레이어만)
     for (const player of this.players.values()) {
-      this.renderer.drawPlayer(player, alpha);
+      // 로컬 플레이어는 항상 표시
+      if (player.id === this.localPlayer.id) {
+        this.renderer.drawPlayer(player, alpha);
+        continue;
+      }
+      
+      // 다른 플레이어는 시야 안에 있을 때만 표시
+      const otherPos = player.getInterpolatedPosition(alpha);
+      if (this.isInFOV(playerPos.x, playerPos.y, playerRot, otherPos.x, otherPos.y)) {
+        this.renderer.drawPlayer(player, alpha);
+      }
     }
     
     // 데미지 숫자 그리기
@@ -1009,6 +1025,24 @@ export class Game {
         this.renderer.drawDamageNumber(dn.x, dn.y, dn.damage, progress);
       }
     }
+    
+    // 시야(FOV) 그리기 - 시야 밖 영역 어둡게
+    this.renderer.drawFOV(
+      playerPos.x,
+      playerPos.y,
+      playerRot,
+      visionPoints,
+      rect.width,
+      rect.height
+    );
+    
+    // 자기장 다시 그리기 (FOV 위에, 더 밝게)
+    this.renderer.drawZoneOverFOV(
+      this.zone.getCurrentZone(),
+      this.zone.getTargetZone(),
+      mapWidth,
+      mapHeight
+    );
     
     // 카메라 변환 해제
     this.renderer.endCamera();
@@ -1113,5 +1147,82 @@ export class Game {
       player.x = result.x;
       player.y = result.y;
     }
+  }
+
+  /**
+   * FOV 계산 - 레이캐스팅으로 시야 영역 계산
+   * @returns 시야 영역의 끝점들 (다각형 형태)
+   */
+  private calculateFOV(
+    playerX: number,
+    playerY: number,
+    rotation: number
+  ): { x: number; y: number }[] {
+    const { fovAngle, viewDistance, rayCount } = FOV_CONFIG;
+    const halfFov = fovAngle / 2;
+    const startAngle = rotation - halfFov;
+    const angleStep = fovAngle / rayCount;
+    
+    const points: { x: number; y: number }[] = [];
+    
+    for (let i = 0; i <= rayCount; i++) {
+      const angle = startAngle + angleStep * i;
+      const result = this.tileMap.castVisionRay(
+        playerX,
+        playerY,
+        angle,
+        viewDistance
+      );
+      points.push({ x: result.x, y: result.y });
+    }
+    
+    return points;
+  }
+
+  /**
+   * 대상이 플레이어의 시야 안에 있는지 확인
+   * 각도 + 거리 + 벽 차단 체크
+   */
+  private isInFOV(
+    playerX: number,
+    playerY: number,
+    playerRot: number,
+    targetX: number,
+    targetY: number
+  ): boolean {
+    const { fovAngle, viewDistance } = FOV_CONFIG;
+    const halfFov = fovAngle / 2;
+    
+    // 거리 체크
+    const dx = targetX - playerX;
+    const dy = targetY - playerY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    if (distance > viewDistance) {
+      return false;
+    }
+    
+    // 각도 체크
+    const angleToTarget = Math.atan2(dy, dx);
+    let angleDiff = angleToTarget - playerRot;
+    
+    // 각도 정규화 (-π ~ π)
+    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+    
+    if (Math.abs(angleDiff) > halfFov) {
+      return false;
+    }
+    
+    // 벽 차단 체크 (레이캐스팅)
+    const result = this.tileMap.castVisionRay(
+      playerX,
+      playerY,
+      angleToTarget,
+      distance
+    );
+    
+    // 벽에 먼저 도달하면 시야에서 안 보임
+    return result.distance >= distance - 10; // 약간의 여유
   }
 }
