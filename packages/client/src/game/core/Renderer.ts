@@ -7,6 +7,7 @@ import {
   ZONE_CONFIG,
   type GameMap,
   type WeaponDef,
+  type UsableItemDef,
 } from '@battle-royal/shared';
 import type { Camera } from '../world/Camera';
 import type { Player } from '../entities/Player';
@@ -374,9 +375,11 @@ export class Renderer {
     this.ctx.fillText(`[${weapon.ammoType}]`, x + 170, y + 15);
   }
 
-  /** 무기 슬롯 HUD 그리기 (5슬롯) */
+  /** 무기/아이템 슬롯 HUD 그리기 (5슬롯: 무기 3 + 아이템 2) */
   drawWeaponSlots(
-    slots: (WeaponDef | null)[],
+    weaponSlots: (WeaponDef | null)[],
+    itemSlots: (UsableItemDef | null)[],
+    itemCounts: number[],
     currentSlot: number,
     x: number,
     y: number
@@ -384,14 +387,14 @@ export class Renderer {
     const slotWidth = 60;
     const slotHeight = 50;
     const gap = 4;
-    const totalWidth = slots.length * slotWidth + (slots.length - 1) * gap;
+    const totalSlots = 5; // 무기 3 + 아이템 2
+    const totalWidth = totalSlots * slotWidth + (totalSlots - 1) * gap;
     
     // 중앙 정렬을 위해 시작 위치 조정 (x가 중앙 기준)
     const startX = x - totalWidth / 2;
     
-    for (let i = 0; i < slots.length; i++) {
+    for (let i = 0; i < totalSlots; i++) {
       const slotX = startX + i * (slotWidth + gap);
-      const weapon = slots[i];
       const isActive = i === currentSlot;
       
       // 슬롯 배경
@@ -412,31 +415,59 @@ export class Renderer {
       this.ctx.textBaseline = 'top';
       this.ctx.fillText(`${i + 1}`, slotX + 4, y + 4);
       
-      if (weapon) {
-        // 무기 이름
-        this.ctx.fillStyle = isActive ? '#ffffff' : '#aaaaaa';
-        this.ctx.font = 'bold 11px sans-serif';
-        this.ctx.textAlign = 'center';
-        this.ctx.textBaseline = 'middle';
-        
-        // 이름이 길면 줄이기
-        const displayName = weapon.name.length > 6 
-          ? weapon.name.substring(0, 6) + '..'
-          : weapon.name;
-        this.ctx.fillText(displayName, slotX + slotWidth / 2, y + slotHeight / 2);
-        
-        // 카테고리 아이콘 (작은 텍스트)
-        this.ctx.fillStyle = isActive ? '#ffcc00' : '#666666';
-        this.ctx.font = '9px sans-serif';
-        this.ctx.textBaseline = 'bottom';
-        this.ctx.fillText(weapon.category, slotX + slotWidth / 2, y + slotHeight - 4);
+      if (i < 3) {
+        // 무기 슬롯 (1-3)
+        const weapon = weaponSlots[i];
+        if (weapon) {
+          // 무기 이름
+          this.ctx.fillStyle = isActive ? '#ffffff' : '#aaaaaa';
+          this.ctx.font = 'bold 11px sans-serif';
+          this.ctx.textAlign = 'center';
+          this.ctx.textBaseline = 'middle';
+          
+          const displayName = weapon.name.length > 6 
+            ? weapon.name.substring(0, 6) + '..'
+            : weapon.name;
+          this.ctx.fillText(displayName, slotX + slotWidth / 2, y + slotHeight / 2);
+          
+          // 카테고리
+          this.ctx.fillStyle = isActive ? '#ffcc00' : '#666666';
+          this.ctx.font = '9px sans-serif';
+          this.ctx.textBaseline = 'bottom';
+          this.ctx.fillText(weapon.category, slotX + slotWidth / 2, y + slotHeight - 4);
+        } else {
+          this.drawEmptySlot(slotX, y, slotWidth, slotHeight);
+        }
       } else {
-        // 빈 슬롯
-        this.ctx.fillStyle = '#444444';
-        this.ctx.font = '10px sans-serif';
-        this.ctx.textAlign = 'center';
-        this.ctx.textBaseline = 'middle';
-        this.ctx.fillText('—', slotX + slotWidth / 2, y + slotHeight / 2);
+        // 아이템 슬롯 (4-5)
+        const itemIndex = i - 3;
+        const item = itemSlots[itemIndex];
+        const count = itemCounts[itemIndex];
+        
+        if (item && count > 0) {
+          // 아이템 색상 배경
+          this.ctx.fillStyle = item.color + '40'; // 40% 투명도
+          this.ctx.fillRect(slotX + 2, y + 2, slotWidth - 4, slotHeight - 4);
+          
+          // 아이템 이름
+          this.ctx.fillStyle = isActive ? '#ffffff' : '#aaaaaa';
+          this.ctx.font = 'bold 10px sans-serif';
+          this.ctx.textAlign = 'center';
+          this.ctx.textBaseline = 'middle';
+          
+          const displayName = item.name.length > 5 
+            ? item.name.substring(0, 5) + '..'
+            : item.name;
+          this.ctx.fillText(displayName, slotX + slotWidth / 2, y + slotHeight / 2 - 5);
+          
+          // 수량
+          this.ctx.fillStyle = '#ffffff';
+          this.ctx.font = 'bold 14px sans-serif';
+          this.ctx.textBaseline = 'bottom';
+          this.ctx.fillText(`×${count}`, slotX + slotWidth / 2, y + slotHeight - 4);
+        } else {
+          this.drawEmptySlot(slotX, y, slotWidth, slotHeight);
+        }
       }
     }
     
@@ -446,6 +477,15 @@ export class Renderer {
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'top';
     this.ctx.fillText('1-5 또는 마우스 휠로 선택', x, y + slotHeight + 6);
+  }
+  
+  /** 빈 슬롯 그리기 */
+  private drawEmptySlot(x: number, y: number, width: number, height: number): void {
+    this.ctx.fillStyle = '#444444';
+    this.ctx.font = '10px sans-serif';
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText('—', x + width / 2, y + height / 2);
   }
 
   /** 우측 하단 무기 상태 UI (투명 배경, 텍스트만) */
@@ -478,6 +518,78 @@ export class Renderer {
     this.ctx.fillStyle = '#888888';
     this.ctx.font = '16px sans-serif';
     this.ctx.fillText(`/ ${ammoReserve}`, x, y);
+  }
+
+  /** 좌하단 체력/회복 게이지 HUD */
+  drawHealthHUD(
+    hp: number,
+    maxHp: number,
+    healGauge: number,
+    maxHealGauge: number,
+    viewHeight: number
+  ): void {
+    const padding = 20;
+    const barWidth = 180;
+    const barHeight = 12;
+    const gap = 6;
+    const x = padding;
+    const y = viewHeight - padding - barHeight;
+    
+    // 체력 비율
+    const hpRatio = hp / maxHp;
+    
+    // HP 색상 결정
+    let hpColor: string;
+    if (hpRatio >= 0.8) {
+      hpColor = '#88ee44'; // 연두색 (80% 이상)
+    } else if (hpRatio >= 0.4) {
+      hpColor = '#eecc44'; // 노란색 (40% 이상)
+    } else {
+      hpColor = '#ee4444'; // 붉은색 (40% 미만)
+    }
+    
+    // === 체력 게이지 (아래) ===
+    // 배경
+    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    this.ctx.fillRect(x, y, barWidth, barHeight);
+    
+    // 체력 바
+    const hpWidth = barWidth * hpRatio;
+    this.ctx.fillStyle = hpColor;
+    this.ctx.fillRect(x, y, hpWidth, barHeight);
+    
+    // 테두리
+    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+    this.ctx.lineWidth = 1;
+    this.ctx.strokeRect(x, y, barWidth, barHeight);
+    
+    // HP 텍스트
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.font = 'bold 10px sans-serif';
+    this.ctx.textAlign = 'left';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText(`HP ${Math.ceil(hp)}/${maxHp}`, x + 4, y + barHeight / 2);
+    
+    // === 지속 회복 게이지 (위) ===
+    const healY = y - gap - barHeight;
+    const healRatio = healGauge / maxHealGauge;
+    
+    // 배경
+    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    this.ctx.fillRect(x, healY, barWidth, barHeight);
+    
+    // 회복 바 (밝은 노란색)
+    const healWidth = barWidth * healRatio;
+    this.ctx.fillStyle = '#ffee88'; // 밝은 노란색
+    this.ctx.fillRect(x, healY, healWidth, barHeight);
+    
+    // 테두리
+    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+    this.ctx.strokeRect(x, healY, barWidth, barHeight);
+    
+    // 회복 텍스트
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.fillText(`HEAL`, x + 4, healY + barHeight / 2);
   }
 
   /** 재장전 인디케이터 (화면 정중앙, 희미한 원형 프로그레스) */
@@ -519,6 +631,50 @@ export class Renderer {
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'middle';
     this.ctx.fillText('재장전', centerX, centerY);
+    
+    this.ctx.restore();
+  }
+
+  /** 아이템 사용 인디케이터 (화면 정중앙) */
+  drawItemUseIndicator(
+    progress: number,
+    itemName: string,
+    viewWidth: number,
+    viewHeight: number
+  ): void {
+    if (progress <= 0 || progress >= 1) return;
+    
+    const centerX = viewWidth / 2;
+    const centerY = viewHeight / 2;
+    const radius = 35;
+    const lineWidth = 5;
+    
+    this.ctx.save();
+    
+    // 배경 원 (희미한 회색)
+    this.ctx.beginPath();
+    this.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    this.ctx.strokeStyle = 'rgba(255, 200, 100, 0.2)';
+    this.ctx.lineWidth = lineWidth;
+    this.ctx.stroke();
+    
+    // 진행률 원 (밝은 노란색/주황색)
+    const startAngle = -Math.PI / 2;
+    const endAngle = startAngle + (Math.PI * 2 * progress);
+    
+    this.ctx.beginPath();
+    this.ctx.arc(centerX, centerY, radius, startAngle, endAngle);
+    this.ctx.strokeStyle = 'rgba(255, 200, 100, 0.7)';
+    this.ctx.lineWidth = lineWidth;
+    this.ctx.lineCap = 'round';
+    this.ctx.stroke();
+    
+    // 아이템 이름 텍스트
+    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    this.ctx.font = 'bold 11px sans-serif';
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText(itemName, centerX, centerY);
     
     this.ctx.restore();
   }

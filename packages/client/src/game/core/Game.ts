@@ -15,7 +15,11 @@ import {
   DEFAULT_WEAPON_ID,
   PROJECTILE_CONFIG,
   BotDifficulty,
+  USABLE_ITEMS,
+  HEAL_OVER_TIME_CONFIG,
+  UsableItemType,
   type WeaponDef,
+  type UsableItemDef,
 } from '@battle-royal/shared';
 
 /**
@@ -55,6 +59,19 @@ export class Game {
   private isReloading = false;
   private reloadStartTime = 0;
   private reloadDuration = 0;
+  
+  // 아이템 슬롯 (4,5번 슬롯)
+  private itemSlots: (UsableItemDef | null)[] = [null, null]; // 슬롯 3,4 (0-indexed)
+  private itemCounts: number[] = [0, 0]; // 아이템 수량
+  
+  // 아이템 사용 상태
+  private isUsingItem = false;
+  private itemUseStartTime = 0;
+  private itemUseDuration = 0;
+  private usingItemIndex = -1; // 사용 중인 아이템 슬롯 인덱스 (3 or 4)
+  
+  // 지속 회복 게이지
+  private healOverTimeGauge = 0;
 
   // 상태
   private isRunning = false;
@@ -122,7 +139,13 @@ export class Game {
     this.ammoReserve.set('9mm', 120);
     this.ammoReserve.set('shotgun', 24);
     
-    // 테스트용 적 플레이어 추가
+    // 초기 아이템 설정 (4,5번 슬롯)
+    this.itemSlots[0] = USABLE_ITEMS['health_kit'];
+    this.itemSlots[1] = USABLE_ITEMS['heal_over_time'];
+    this.itemCounts[0] = 2; // 구급상자 2개
+    this.itemCounts[1] = 3; // 진통제 3개
+    
+    // 테스트용 AI 봇 생성
     this.spawnTestEnemies(5);
   }
 
@@ -233,11 +256,19 @@ export class Game {
 
   /** 무기 슬롯 직접 선택 (숫자 키) */
   private selectWeaponSlot(slotNumber: number): void {
-    // 재장전 중이면 무기 변경 불가
-    if (this.isReloading) return;
+    // 재장전 중이거나 아이템 사용 중이면 불가
+    if (this.isReloading || this.isUsingItem) return;
     
     const index = slotNumber - 1; // 1-5 -> 0-4
-    if (index >= 0 && index < this.weaponSlots.length) {
+    
+    // 4,5번 키는 아이템 슬롯 (인덱스 3,4 -> 아이템 슬롯 0,1)
+    if (index === 3 || index === 4) {
+      this.startUseItem(index - 3); // 0 또는 1
+      return;
+    }
+    
+    // 무기 슬롯 (1-3번)
+    if (index >= 0 && index < 3) {
       if (this.weaponSlots[index] !== null) {
         this.currentSlotIndex = index;
         this.lastFireTime = 0;
@@ -245,10 +276,103 @@ export class Game {
     }
   }
 
+  /** 아이템 사용 시작 */
+  private startUseItem(itemSlotIndex: number): void {
+    // 이미 사용 중이면 무시
+    if (this.isUsingItem) return;
+    
+    const item = this.itemSlots[itemSlotIndex];
+    const count = this.itemCounts[itemSlotIndex];
+    
+    // 아이템이 없거나 수량이 0이면 사용 불가
+    if (!item || count <= 0) return;
+    
+    // 체력 아이템: 이미 풀피면 사용 불가
+    if (item.type === UsableItemType.HEALTH_KIT) {
+      if (this.localPlayer.hp >= this.localPlayer.maxHp) return;
+    }
+    
+    // 지속 회복 아이템: 이미 게이지 풀이면 사용 불가
+    if (item.type === UsableItemType.HEAL_OVER_TIME) {
+      if (this.healOverTimeGauge >= HEAL_OVER_TIME_CONFIG.maxGauge) return;
+    }
+    
+    this.isUsingItem = true;
+    this.itemUseStartTime = performance.now();
+    this.itemUseDuration = item.useTime;
+    this.usingItemIndex = itemSlotIndex;
+  }
+  
+  /** 아이템 사용 취소 */
+  private cancelItemUse(): void {
+    this.isUsingItem = false;
+    this.usingItemIndex = -1;
+  }
+  
+  /** 아이템 사용 업데이트 */
+  private updateItemUse(): void {
+    if (!this.isUsingItem) return;
+    
+    const now = performance.now();
+    if (now - this.itemUseStartTime >= this.itemUseDuration) {
+      this.completeItemUse();
+    }
+  }
+  
+  /** 아이템 사용 완료 */
+  private completeItemUse(): void {
+    const item = this.itemSlots[this.usingItemIndex];
+    if (!item) {
+      this.cancelItemUse();
+      return;
+    }
+    
+    // 효과 적용
+    if (item.type === UsableItemType.HEALTH_KIT) {
+      // 즉시 체력 회복
+      const newHp = Math.min(this.localPlayer.maxHp, this.localPlayer.hp + item.amount);
+      this.localPlayer.hp = newHp;
+    } else if (item.type === UsableItemType.HEAL_OVER_TIME) {
+      // 지속 회복 게이지 충전
+      const newGauge = Math.min(HEAL_OVER_TIME_CONFIG.maxGauge, this.healOverTimeGauge + item.amount);
+      this.healOverTimeGauge = newGauge;
+    }
+    
+    // 아이템 수량 감소
+    this.itemCounts[this.usingItemIndex]--;
+    
+    this.isUsingItem = false;
+    this.usingItemIndex = -1;
+  }
+  
+  /** 아이템 사용 진행률 */
+  private getItemUseProgress(): number {
+    if (!this.isUsingItem) return 0;
+    const elapsed = performance.now() - this.itemUseStartTime;
+    return Math.min(1, elapsed / this.itemUseDuration);
+  }
+  
+  /** 지속 회복 게이지 업데이트 */
+  private updateHealOverTime(dt: number): void {
+    if (this.healOverTimeGauge <= 0) return;
+    if (!this.localPlayer.isAlive) return;
+    
+    const dtSec = dt / 1000;
+    
+    // 게이지 소모
+    this.healOverTimeGauge = Math.max(0, this.healOverTimeGauge - HEAL_OVER_TIME_CONFIG.gaugePerSecond * dtSec);
+    
+    // 체력 회복 (풀피 아닐 때만)
+    if (this.localPlayer.hp < this.localPlayer.maxHp) {
+      const heal = HEAL_OVER_TIME_CONFIG.healPerSecond * dtSec;
+      this.localPlayer.hp = Math.min(this.localPlayer.maxHp, this.localPlayer.hp + heal);
+    }
+  }
+
   /** 재장전 시작 */
   private startReload(): void {
-    // 이미 재장전 중이면 무시 (취소는 cancelReload에서)
-    if (this.isReloading) return;
+    // 이미 재장전 중이거나 아이템 사용 중이면 무시
+    if (this.isReloading || this.isUsingItem) return;
     
     const weapon = this.getCurrentWeapon();
     if (!weapon) return;
@@ -335,6 +459,65 @@ export class Game {
   private update(dt: number): void {
     // 입력 처리
     const input = this.inputManager.getInput();
+    
+    // 플레이어가 죽었으면 대부분의 행동 불가
+    if (!this.localPlayer.isAlive) {
+      // 죽은 상태에서도 카메라 조준은 가능
+      const worldMouseX = input.mouseX + this.camera.x;
+      const worldMouseY = input.mouseY + this.camera.y;
+      this.localPlayer.lookAt(worldMouseX, worldMouseY);
+      
+      // 봇 AI/투사체/자기장은 계속 업데이트
+      this.updateBotAIs(dt);
+      for (const player of this.players.values()) {
+        player.update(dt);
+        if (player.isBot && player.isAlive) {
+          this.handlePlayerCollision(player);
+        }
+      }
+      this.updateProjectiles(dt);
+      this.zone.update();
+      this.applyZoneDamage(dt);
+      return;
+    }
+    
+    // 아이템 사용 업데이트
+    this.updateItemUse();
+    
+    // 지속 회복 게이지 업데이트
+    this.updateHealOverTime(dt);
+    
+    // 아이템 사용 중이면 다른 행동 불가
+    if (this.isUsingItem) {
+      // 아이템 사용 취소 입력 (F키)
+      if (input.cancelItemPressed) {
+        this.cancelItemUse();
+        // 취소 후 일반 로직 진행
+      } else {
+        // 이동 불가 (정지)
+        this.localPlayer.setMovement(0, 0);
+        // 마우스 조준은 가능
+        const worldMouseX = input.mouseX + this.camera.x;
+        const worldMouseY = input.mouseY + this.camera.y;
+        this.localPlayer.lookAt(worldMouseX, worldMouseY);
+        // 플레이어 업데이트만 하고 나머지는 건너뜀
+        this.localPlayer.update(dt);
+        this.handlePlayerCollision(this.localPlayer);
+        
+        // 봇 AI/투사체/자기장은 계속 업데이트
+        this.updateBotAIs(dt);
+        for (const player of this.players.values()) {
+          player.update(dt);
+          if (player.isBot && player.isAlive) {
+            this.handlePlayerCollision(player);
+          }
+        }
+        this.updateProjectiles(dt);
+        this.zone.update();
+        this.applyZoneDamage(dt);
+        return;
+      }
+    }
     
     // 재장전 업데이트
     this.updateReload();
@@ -789,9 +972,11 @@ export class Game {
     // 카메라 변환 해제
     this.renderer.endCamera();
     
-    // HUD: 무기 슬롯 (하단 중앙)
+    // HUD: 무기/아이템 슬롯 (하단 중앙)
     this.renderer.drawWeaponSlots(
       this.weaponSlots,
+      this.itemSlots,
+      this.itemCounts,
       this.currentSlotIndex,
       rect.width / 2,
       rect.height - 80
@@ -810,6 +995,27 @@ export class Game {
       rect.width,
       rect.height
     );
+    
+    // HUD: 좌하단 체력/회복 게이지
+    this.renderer.drawHealthHUD(
+      this.localPlayer.hp,
+      this.localPlayer.maxHp,
+      this.healOverTimeGauge,
+      HEAL_OVER_TIME_CONFIG.maxGauge,
+      rect.height
+    );
+    
+    // 아이템 사용 인디케이터 (화면 중앙)
+    if (this.isUsingItem) {
+      const item = this.itemSlots[this.usingItemIndex];
+      const itemName = item ? item.name : '';
+      this.renderer.drawItemUseIndicator(
+        this.getItemUseProgress(),
+        itemName,
+        rect.width,
+        rect.height
+      );
+    }
     
     // 재장전 인디케이터 (화면 중앙)
     if (this.isReloading) {
