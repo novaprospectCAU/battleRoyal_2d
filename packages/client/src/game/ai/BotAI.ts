@@ -78,7 +78,7 @@ export class BotAI {
     
     // 상태 업데이트 (일정 간격마다)
     if (now - this.lastStateUpdate >= AI_CONFIG.stateUpdateInterval) {
-      this.updateState(players, localPlayer);
+      this.updateState(players, localPlayer, tileMap);
       this.lastStateUpdate = now;
     }
     
@@ -87,9 +87,13 @@ export class BotAI {
   }
   
   /** 상태 결정 */
-  private updateState(players: Map<string, Player>, localPlayer: Player): void {
+  private updateState(
+    players: Map<string, Player>,
+    localPlayer: Player,
+    tileMap: TileMap
+  ): void {
     const prevState = this.state;
-    
+
     // 1. 자기장 체크 (최우선)
     if (this.shouldFleeZone()) {
       this.state = BotState.ZONE_FLEE;
@@ -98,7 +102,7 @@ export class BotAI {
       }
       return;
     }
-    
+
     // 2. 도주 체크 (체력 낮음)
     const healthRatio = this.player.hp / this.player.maxHp;
     if (healthRatio <= this.config.fleeHealthRatio && this.targetPlayer) {
@@ -108,9 +112,9 @@ export class BotAI {
       }
       return;
     }
-    
+
     // 3. 적 탐지
-    const visibleEnemy = this.findVisibleEnemy(players, localPlayer);
+    const visibleEnemy = this.findVisibleEnemy(players, localPlayer, tileMap);
     
     if (visibleEnemy) {
       this.targetPlayer = visibleEnemy;
@@ -214,14 +218,27 @@ export class BotAI {
             this.targetPlayer.y - this.player.y,
             this.targetPlayer.x - this.player.x
           );
-          
+
           // 정확도에 따른 조준 오차
           const inaccuracy = (1 - this.config.aimAccuracy) * 0.3;
           targetAngle = aimAngle + (Math.random() - 0.5) * inaccuracy;
-          
-          // 사격 결정
-          wantsFire = this.shouldFire(now);
-          
+
+          // 사격 결정 (벽 뒤면 사격 안함)
+          const hasLoS = this.hasLineOfSight(
+            this.player.x,
+            this.player.y,
+            this.targetPlayer.x,
+            this.targetPlayer.y,
+            tileMap
+          );
+
+          if (hasLoS) {
+            wantsFire = this.shouldFire(now);
+          } else {
+            // 시야가 막히면 추적 상태로 전환
+            this.state = BotState.CHASE;
+          }
+
           // 약간 움직이기 (회피 동작)
           const strafeDir = Math.sin(now / 500) * 0.5;
           const perpAngle = aimAngle + Math.PI / 2;
@@ -302,24 +319,60 @@ export class BotAI {
     return distToCenter > safeRadius;
   }
   
+  /** 두 점 사이에 시야가 있는지 확인 (벽 체크) */
+  private hasLineOfSight(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    tileMap: TileMap
+  ): boolean {
+    const dx = toX - fromX;
+    const dy = toY - fromY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance === 0) return true;
+
+    // 8px 간격으로 레이캐스트
+    const stepSize = 8;
+    const steps = Math.ceil(distance / stepSize);
+    const stepX = dx / steps;
+    const stepY = dy / steps;
+
+    for (let i = 1; i < steps; i++) {
+      const checkX = fromX + stepX * i;
+      const checkY = fromY + stepY * i;
+
+      if (tileMap.blocksVision(checkX, checkY)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   /** 시야 내 적 탐지 */
-  private findVisibleEnemy(players: Map<string, Player>, localPlayer: Player): Player | null {
+  private findVisibleEnemy(
+    players: Map<string, Player>,
+    localPlayer: Player,
+    tileMap: TileMap
+  ): Player | null {
     let closestEnemy: Player | null = null;
     let closestDist = this.config.visionRange;
-    
+
     // 모든 플레이어 체크 (localPlayer + 다른 봇들)
     const allTargets = [localPlayer, ...players.values()];
-    
+
     for (const target of allTargets) {
       // 자기 자신, 죽은 플레이어 제외
       if (target.id === this.player.id) continue;
       if (!target.isAlive) continue;
-      
+
       const dist = this.distanceTo(target.x, target.y);
-      
+
       // 시야 범위 체크
       if (dist > this.config.visionRange) continue;
-      
+
       // 시야각 체크 (IDLE/PATROL 상태에서는 360도 감지)
       if (this.state === BotState.CHASE || this.state === BotState.ATTACK) {
         const angleToTarget = Math.atan2(
@@ -328,19 +381,24 @@ export class BotAI {
         );
         let angleDiff = Math.abs(angleToTarget - this.player.rotation);
         if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
-        
+
         // 전투 중에는 시야각 적용
         if (angleDiff > this.config.visionAngle / 2) continue;
       }
       // IDLE/PATROL에서는 360도 감지 (주변 인식)
-      
+
+      // 벽 뒤 적은 탐지 불가 (Line of Sight 체크)
+      if (!this.hasLineOfSight(this.player.x, this.player.y, target.x, target.y, tileMap)) {
+        continue;
+      }
+
       // 가장 가까운 적 선택
       if (dist < closestDist) {
         closestDist = dist;
         closestEnemy = target;
       }
     }
-    
+
     return closestEnemy;
   }
   
