@@ -6,6 +6,7 @@ import { Zone } from '../world/Zone';
 import { InputManager } from '../input/InputManager';
 import { Player } from '../entities/Player';
 import { Projectile, generateProjectileId } from '../entities/Projectile';
+import { BotAI } from '../ai/BotAI';
 import { 
   PLAYER_CONFIG,
   RENDER_CONFIG,
@@ -13,6 +14,7 @@ import {
   WEAPONS,
   DEFAULT_WEAPON_ID,
   PROJECTILE_CONFIG,
+  BotDifficulty,
   type WeaponDef,
 } from '@battle-royal/shared';
 
@@ -32,6 +34,9 @@ export class Game {
   // 플레이어
   private localPlayer: Player;
   private players: Map<string, Player> = new Map();
+  
+  // AI 봇
+  private botAIs: Map<string, BotAI> = new Map();
 
   // 투사체
   private projectiles: Projectile[] = [];
@@ -121,19 +126,34 @@ export class Game {
     this.spawnTestEnemies(5);
   }
 
-  /** 테스트용 적 플레이어 생성 */
+  /** 테스트용 AI 봇 생성 */
   private spawnTestEnemies(count: number): void {
+    // 난이도 분배: Easy 40%, Normal 40%, Hard 20%
+    const difficulties = [
+      BotDifficulty.EASY,
+      BotDifficulty.EASY,
+      BotDifficulty.NORMAL,
+      BotDifficulty.NORMAL,
+      BotDifficulty.HARD,
+    ];
+    
     for (let i = 0; i < count; i++) {
       const spawn = this.tileMap.getRandomSpawn();
       const enemy = new Player(
-        `enemy-${i}`,
+        `bot-${i}`,
         spawn.x,
         spawn.y,
         false
       );
-      enemy.name = `Bot ${i + 1}`;
-      enemy.isBot = true;
+      
+      // 난이도 선택
+      const difficulty = difficulties[i % difficulties.length];
+      
+      // AI 생성 및 연결
+      const botAI = new BotAI(enemy, difficulty);
+      
       this.players.set(enemy.id, enemy);
+      this.botAIs.set(enemy.id, botAI);
     }
   }
 
@@ -360,6 +380,9 @@ export class Game {
     // 발사 처리 (재장전 중이면 handleFiring 내부에서 무시)
     this.handleFiring(input.mouseDown);
     
+    // 봇 AI 업데이트
+    this.updateBotAIs(dt);
+    
     // 플레이어 업데이트
     for (const player of this.players.values()) {
       player.update(dt);
@@ -367,6 +390,11 @@ export class Game {
     
     // 벽 충돌 처리
     this.handlePlayerCollision(this.localPlayer);
+    for (const player of this.players.values()) {
+      if (player.isBot && player.isAlive) {
+        this.handlePlayerCollision(player);
+      }
+    }
     
     // 투사체 업데이트
     this.updateProjectiles(dt);
@@ -376,6 +404,69 @@ export class Game {
     
     // 자기장 밖 데미지 적용
     this.applyZoneDamage(dt);
+  }
+  
+  /** 봇 AI 업데이트 */
+  private updateBotAIs(dt: number): void {
+    const currentZone = this.zone.getCurrentZone();
+    const zoneState = this.zone.getState();
+    
+    for (const [botId, botAI] of this.botAIs) {
+      const bot = this.players.get(botId);
+      if (!bot || !bot.isAlive) continue;
+      
+      // 자기장 정보 업데이트
+      botAI.updateZoneInfo(
+        currentZone.x,
+        currentZone.y,
+        currentZone.radius,
+        zoneState === 'shrinking'
+      );
+      
+      // AI 업데이트 및 사격 결정
+      const aiResult = botAI.update(
+        dt,
+        this.tileMap,
+        this.players,
+        this.localPlayer
+      );
+      
+      // 봇 사격 처리
+      if (aiResult.wantsFire) {
+        this.fireBotWeapon(bot, aiResult.targetAngle);
+      }
+    }
+  }
+  
+  /** 봇 무기 발사 */
+  private fireBotWeapon(bot: Player, angle: number): void {
+    // 봇은 기본 무기 사용
+    const weapon = WEAPONS['pistol_proto'];
+    if (!weapon) return;
+    
+    // 총구 위치
+    const muzzleOffset = PLAYER_CONFIG.radius + 10;
+    let startX = bot.x + Math.cos(angle) * muzzleOffset;
+    let startY = bot.y + Math.sin(angle) * muzzleOffset;
+    
+    // 시작 위치가 벽 안에 있으면 봇 위치에서 시작
+    if (!this.tileMap.isWalkable(startX, startY)) {
+      startX = bot.x;
+      startY = bot.y;
+    }
+    
+    // 투사체 생성
+    const projectile = new Projectile(
+      generateProjectileId(),
+      bot.id,
+      weapon,
+      startX,
+      startY,
+      angle,
+      (Math.random() - 0.5) * weapon.spreadAngle
+    );
+    
+    this.projectiles.push(projectile);
   }
 
   /** 자기장 밖 데미지 적용 */
@@ -738,7 +829,6 @@ export class Game {
     );
     
     // HUD: 미니맵 (우측 상단)
-    const mapData = this.tileMap.getMap();
     this.renderer.drawMinimap(
       this.localPlayer.x,
       this.localPlayer.y,
@@ -747,8 +837,8 @@ export class Game {
       mapWidth,
       mapHeight,
       rect.width,
-      mapData.tiles,
-      mapData.tileSize
+      map.tiles,
+      map.tileSize
     );
     
     // FPS 업데이트

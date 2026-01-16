@@ -96,6 +96,10 @@ export class Player {
 
   /** 보간된 위치 가져오기 */
   getInterpolatedPosition(alpha: number): Vector2 {
+    // 죽은 플레이어는 보간 없이 현재 위치 반환
+    if (!this.isAlive) {
+      return new Vector2(this.x, this.y);
+    }
     return new Vector2(
       this.prevX + (this.x - this.prevX) * alpha,
       this.prevY + (this.y - this.prevY) * alpha
@@ -104,6 +108,11 @@ export class Player {
 
   /** 보간된 회전 가져오기 */
   getInterpolatedRotation(alpha: number): number {
+    // 죽은 플레이어는 보간 없이 현재 회전 반환
+    if (!this.isAlive) {
+      return this.rotation;
+    }
+    
     // 각도 보간 (최단 경로)
     let diff = this.rotation - this.prevRotation;
     
