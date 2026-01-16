@@ -79,6 +79,12 @@ export class Game {
   
   // 데미지 표시
   private damageNumbers: { x: number; y: number; damage: number; time: number }[] = [];
+  
+  // 킬로그
+  private killLogs: { killer: string; victim: string; weapon: string; time: number }[] = [];
+  
+  // 전체 플레이어 수 (게임 시작 시 고정)
+  private totalPlayerCount = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -178,6 +184,9 @@ export class Game {
       this.players.set(enemy.id, enemy);
       this.botAIs.set(enemy.id, botAI);
     }
+    
+    // 전체 플레이어 수 설정 (로컬 플레이어 + 봇)
+    this.totalPlayerCount = this.players.size;
   }
 
   /** 캔버스 크기 설정 */
@@ -663,9 +672,29 @@ export class Game {
       if (!player.isAlive) continue;
       
       if (!this.zone.isInSafeZone(player.x, player.y)) {
+        const wasAlive = player.isAlive;
         player.takeDamage(damage);
+        
+        // 자기장으로 사망 시 킬로그 추가
+        if (wasAlive && !player.isAlive) {
+          this.killLogs.push({
+            killer: '자기장',
+            victim: player.name,
+            weapon: '⚡',
+            time: performance.now(),
+          });
+        }
       }
     }
+  }
+  
+  /** 생존자 수 계산 */
+  private getAliveCount(): number {
+    let count = 0;
+    for (const player of this.players.values()) {
+      if (player.isAlive) count++;
+    }
+    return count;
   }
 
   /** 발사 처리 */
@@ -791,7 +820,19 @@ export class Game {
           ? Math.floor(proj.damage * proj.getDamageMultiplier(weapon))
           : proj.damage;
         
+        const wasAlive = hitPlayer.isAlive;
         hitPlayer.takeDamage(damage);
+        
+        // 킬 발생 시 킬로그 추가
+        if (wasAlive && !hitPlayer.isAlive) {
+          const killer = this.players.get(proj.ownerId);
+          this.killLogs.push({
+            killer: killer ? killer.name : 'Unknown',
+            victim: hitPlayer.name,
+            weapon: weapon ? weapon.name : 'Unknown',
+            time: performance.now(),
+          });
+        }
         
         // 데미지 숫자 표시 추가
         this.damageNumbers.push({
@@ -1046,6 +1087,12 @@ export class Game {
       map.tiles,
       map.tileSize
     );
+    
+    // HUD: 생존자 수 (좌상단)
+    this.renderer.drawSurvivorCount(this.getAliveCount(), this.totalPlayerCount);
+    
+    // HUD: 킬로그 (우측 미니맵 아래)
+    this.renderer.drawKillFeed(this.killLogs, rect.width);
     
     // FPS 업데이트
     this.currentFps = this.gameLoop.getCurrentFps();

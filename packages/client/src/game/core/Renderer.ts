@@ -871,4 +871,89 @@ export class Renderer {
     this.ctx.lineWidth = 1;
     this.ctx.strokeRect(x, y, size, size);
   }
+
+  /** 생존자 수 표시 (좌상단) */
+  drawSurvivorCount(alive: number, total: number): void {
+    const x = 20;
+    const y = 80; // 나가기 버튼과 거리 두기
+    
+    this.ctx.save();
+    
+    // 배경
+    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    this.ctx.beginPath();
+    this.ctx.roundRect(x - 10, y - 12, 85, 45, 5);
+    this.ctx.fill();
+    
+    // 제목
+    this.ctx.fillStyle = '#888888';
+    this.ctx.font = '10px sans-serif';
+    this.ctx.fillText('남은 인원 수', x, y);
+    
+    // 숫자
+    this.ctx.font = 'bold 22px monospace';
+    this.ctx.fillStyle = alive > total * 0.5 ? '#66ff66' : alive > total * 0.2 ? '#ffff66' : '#ff6666';
+    this.ctx.fillText(`${alive}`, x, y + 25);
+    
+    this.ctx.fillStyle = '#888888';
+    this.ctx.font = '16px monospace';
+    this.ctx.fillText(` / ${total}`, x + 28, y + 25);
+    
+    this.ctx.restore();
+  }
+
+  /** 킬로그 표시 (우측 미니맵 아래) */
+  drawKillFeed(
+    killLogs: Array<{ killer: string; victim: string; weapon: string; time: number }>,
+    viewWidth: number
+  ): void {
+    const now = performance.now();
+    const displayDuration = 5000; // 5초간 표시
+    const maxLogs = 5;
+    const x = viewWidth - 180;
+    const startY = 150; // 미니맵 아래
+    const lineHeight = 22;
+    
+    // 최근 로그만 표시 (시간 역순)
+    const recentLogs = killLogs
+      .filter(log => now - log.time < displayDuration)
+      .slice(-maxLogs);
+    
+    this.ctx.save();
+    
+    recentLogs.forEach((log, i) => {
+      const elapsed = now - log.time;
+      const fadeProgress = Math.max(0, 1 - (elapsed / displayDuration));
+      const alpha = fadeProgress > 0.8 ? 1 : fadeProgress / 0.8;
+      
+      const y = startY + i * lineHeight;
+      
+      // 배경
+      this.ctx.fillStyle = `rgba(0, 0, 0, ${0.6 * alpha})`;
+      this.ctx.beginPath();
+      this.ctx.roundRect(x - 5, y - 14, 175, 20, 3);
+      this.ctx.fill();
+      
+      // 킬러 이름 (빨간색)
+      this.ctx.font = 'bold 11px sans-serif';
+      this.ctx.fillStyle = `rgba(255, 100, 100, ${alpha})`;
+      this.ctx.textAlign = 'right';
+      this.ctx.fillText(log.killer.substring(0, 8), x + 55, y);
+      
+      // 무기 아이콘/이름
+      this.ctx.font = '10px sans-serif';
+      this.ctx.fillStyle = `rgba(180, 180, 180, ${alpha})`;
+      this.ctx.textAlign = 'center';
+      this.ctx.fillText(`[${log.weapon.substring(0, 6)}]`, x + 90, y);
+      
+      // 피해자 이름 (흰색)
+      this.ctx.font = 'bold 11px sans-serif';
+      this.ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+      this.ctx.textAlign = 'left';
+      this.ctx.fillText(log.victim.substring(0, 8), x + 125, y);
+    });
+    
+    this.ctx.textAlign = 'left'; // 기본값 복원
+    this.ctx.restore();
+  }
 }
