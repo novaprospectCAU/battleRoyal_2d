@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@battle-royal/shared": ["../shared/src"],
+      "@battle-royal/shared/*": ["../shared/src/*"]
+    }
+  },
+  "include": ["src/**/*"],
+  "references": [
+    { "path": "../shared" }
+  ]
+}

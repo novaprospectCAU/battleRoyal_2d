@@ -1,0 +1,77 @@
+.container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: 
+    radial-gradient(circle at 20% 80%, rgba(67, 97, 238, 0.15) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(247, 37, 133, 0.15) 0%, transparent 50%),
+    linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+}
+
+.content {
+  text-align: center;
+  padding: 48px;
+}
+
+.title {
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.titleMain {
+  font-size: 64px;
+  font-weight: 800;
+  background: linear-gradient(135deg, #4361ee 0%, #f72585 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: 4px;
+  text-shadow: 0 0 40px rgba(67, 97, 238, 0.5);
+}
+
+.titleSub {
+  font-size: 32px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
+  letter-spacing: 16px;
+}
+
+.subtitle {
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 48px;
+}
+
+.buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+}
+
+.buttons button {
+  min-width: 240px;
+}
+
+.buttons button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.info {
+  margin-top: 48px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.version {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.3);
+}
