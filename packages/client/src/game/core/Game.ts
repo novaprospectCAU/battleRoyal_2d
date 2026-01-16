@@ -52,6 +52,9 @@ export class Game {
   // 상태
   private isRunning = false;
   private currentFps = 0;
+  
+  // 데미지 표시
+  private damageNumbers: { x: number; y: number; damage: number; time: number }[] = [];
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -105,6 +108,25 @@ export class Game {
     this.ammoReserve.set('4mm', 50);
     this.ammoReserve.set('9mm', 120);
     this.ammoReserve.set('shotgun', 24);
+    
+    // 테스트용 적 플레이어 추가
+    this.spawnTestEnemies(5);
+  }
+
+  /** 테스트용 적 플레이어 생성 */
+  private spawnTestEnemies(count: number): void {
+    for (let i = 0; i < count; i++) {
+      const spawn = this.tileMap.getRandomSpawn();
+      const enemy = new Player(
+        `enemy-${i}`,
+        spawn.x,
+        spawn.y,
+        false
+      );
+      enemy.name = `Bot ${i + 1}`;
+      enemy.isBot = true;
+      this.players.set(enemy.id, enemy);
+    }
   }
 
   /** 캔버스 크기 설정 */
@@ -450,6 +472,31 @@ export class Game {
       // 업데이트
       proj.update(dt);
       
+      // 플레이어 충돌 체크 (이동 경로 전체에서 체크)
+      const hitPlayer = this.checkProjectilePlayerCollisionPath(proj, prevX, prevY);
+      if (hitPlayer) {
+        // 데미지 적용
+        const weapon = WEAPONS[proj.weaponId];
+        const damage = weapon 
+          ? Math.floor(proj.damage * proj.getDamageMultiplier(weapon))
+          : proj.damage;
+        
+        hitPlayer.takeDamage(damage);
+        
+        // 데미지 숫자 표시 추가
+        this.damageNumbers.push({
+          x: hitPlayer.x,
+          y: hitPlayer.y - PLAYER_CONFIG.radius - 10,
+          damage,
+          time: performance.now(),
+        });
+        
+        // 투사체 제거
+        proj.deactivate();
+        this.projectiles.splice(i, 1);
+        continue;
+      }
+      
       // 벽 충돌 체크 (레이캐스트 스타일)
       if (this.checkProjectileWallCollision(prevX, prevY, proj.x, proj.y)) {
         proj.deactivate();
@@ -463,6 +510,52 @@ export class Game {
         this.projectiles.splice(i, 1);
       }
     }
+  }
+
+  /** 투사체-플레이어 충돌 체크 (경로 기반) */
+  private checkProjectilePlayerCollisionPath(
+    proj: Projectile,
+    fromX: number,
+    fromY: number
+  ): Player | null {
+    const projRadius = PROJECTILE_CONFIG.radius;
+    const toX = proj.x;
+    const toY = proj.y;
+    
+    // 이동 거리 계산
+    const dx = toX - fromX;
+    const dy = toY - fromY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    
+    // 경로를 따라 샘플링 (8px 간격 또는 최소 시작/끝 체크)
+    const steps = Math.max(1, Math.ceil(dist / 8));
+    
+    for (const player of this.players.values()) {
+      // 자기 자신의 투사체는 무시
+      if (player.id === proj.ownerId) continue;
+      
+      // 죽은 플레이어는 무시
+      if (!player.isAlive) continue;
+      
+      const minDist = PLAYER_CONFIG.radius + projRadius;
+      
+      // 경로 상의 모든 점에서 충돌 체크
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const checkX = fromX + dx * t;
+        const checkY = fromY + dy * t;
+        
+        const pdx = player.x - checkX;
+        const pdy = player.y - checkY;
+        const distance = Math.sqrt(pdx * pdx + pdy * pdy);
+        
+        if (distance < minDist) {
+          return player;
+        }
+      }
+    }
+    
+    return null;
   }
 
   /** 투사체-벽 충돌 체크 */
@@ -531,6 +624,21 @@ export class Game {
     // 플레이어들 그리기
     for (const player of this.players.values()) {
       this.renderer.drawPlayer(player, alpha);
+    }
+    
+    // 데미지 숫자 그리기
+    const now = performance.now();
+    const damageDuration = 800; // 0.8초간 표시
+    for (let i = this.damageNumbers.length - 1; i >= 0; i--) {
+      const dn = this.damageNumbers[i];
+      const elapsed = now - dn.time;
+      const progress = elapsed / damageDuration;
+      
+      if (progress >= 1) {
+        this.damageNumbers.splice(i, 1);
+      } else {
+        this.renderer.drawDamageNumber(dn.x, dn.y, dn.damage, progress);
+      }
     }
     
     // 카메라 변환 해제

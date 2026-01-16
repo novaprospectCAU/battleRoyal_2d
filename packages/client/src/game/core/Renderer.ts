@@ -172,6 +172,12 @@ export class Renderer {
     const rotation = player.getInterpolatedRotation(alpha);
     const radius = PLAYER_CONFIG.radius;
     
+    // 죽은 플레이어는 다르게 표시
+    if (!player.isAlive) {
+      this.drawDeadPlayer(pos.x, pos.y, radius, player.name);
+      return;
+    }
+    
     // 색상 결정
     const color = player.isLocalPlayer 
       ? DEBUG_COLORS.localPlayer 
@@ -211,6 +217,61 @@ export class Renderer {
     
     // 체력바
     this.drawHealthBar(pos.x, pos.y + radius + 8, player.hp, player.maxHp);
+  }
+
+  /** 죽은 플레이어 그리기 */
+  private drawDeadPlayer(x: number, y: number, radius: number, name: string): void {
+    this.ctx.save();
+    this.ctx.globalAlpha = 0.5;
+    
+    // 회색 원
+    this.ctx.beginPath();
+    this.ctx.arc(x, y, radius, 0, Math.PI * 2);
+    this.ctx.fillStyle = DEBUG_COLORS.deadPlayer;
+    this.ctx.fill();
+    
+    // X 표시
+    this.ctx.strokeStyle = '#ff0000';
+    this.ctx.lineWidth = 3;
+    this.ctx.beginPath();
+    const offset = radius * 0.6;
+    this.ctx.moveTo(x - offset, y - offset);
+    this.ctx.lineTo(x + offset, y + offset);
+    this.ctx.moveTo(x + offset, y - offset);
+    this.ctx.lineTo(x - offset, y + offset);
+    this.ctx.stroke();
+    
+    this.ctx.restore();
+    
+    // 이름 (희미하게)
+    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    this.ctx.font = '12px sans-serif';
+    this.ctx.textAlign = 'center';
+    this.ctx.fillText(name, x, y - radius - 8);
+  }
+
+  /** 데미지 숫자 그리기 */
+  drawDamageNumber(x: number, y: number, damage: number, progress: number): void {
+    if (progress >= 1) return;
+    
+    // 위로 떠오르면서 사라짐
+    const offsetY = -20 * progress;
+    const alpha = 1 - progress;
+    
+    this.ctx.save();
+    this.ctx.globalAlpha = alpha;
+    this.ctx.fillStyle = '#ff4444';
+    this.ctx.font = 'bold 16px sans-serif';
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
+    
+    // 외곽선
+    this.ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+    this.ctx.lineWidth = 3;
+    this.ctx.strokeText(`-${damage}`, x, y + offsetY);
+    this.ctx.fillText(`-${damage}`, x, y + offsetY);
+    
+    this.ctx.restore();
   }
 
   /** 체력바 그리기 */
