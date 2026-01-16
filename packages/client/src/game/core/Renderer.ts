@@ -384,4 +384,79 @@ export class Renderer {
     this.ctx.textBaseline = 'top';
     this.ctx.fillText('1-5 또는 마우스 휠로 선택', x, y + slotHeight + 6);
   }
+
+  /** 우측 하단 무기 상태 UI (투명 배경, 텍스트만) */
+  drawWeaponStatus(
+    weapon: WeaponDef | null,
+    ammoInMag: number,
+    ammoReserve: number,
+    viewWidth: number,
+    viewHeight: number
+  ): void {
+    if (!weapon) return;
+    
+    const padding = 20;
+    const x = viewWidth - padding;
+    const y = viewHeight - padding;
+    
+    // 무기 이름 (사용 탄환) - 볼드체 크게
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.font = 'bold 18px sans-serif';
+    this.ctx.textAlign = 'right';
+    this.ctx.textBaseline = 'bottom';
+    this.ctx.fillText(`${weapon.name} (${weapon.ammoType})`, x, y - 20);
+    
+    // 장탄수 / 보유 탄약
+    const ammoColor = ammoInMag > 0 ? '#ffffff' : '#ff4444';
+    this.ctx.fillStyle = ammoColor;
+    this.ctx.font = 'bold 24px sans-serif';
+    this.ctx.fillText(`${ammoInMag}`, x - 50, y);
+    
+    this.ctx.fillStyle = '#888888';
+    this.ctx.font = '16px sans-serif';
+    this.ctx.fillText(`/ ${ammoReserve}`, x, y);
+  }
+
+  /** 재장전 인디케이터 (화면 정중앙, 희미한 원형 프로그레스) */
+  drawReloadIndicator(
+    progress: number,
+    viewWidth: number,
+    viewHeight: number
+  ): void {
+    if (progress <= 0 || progress >= 1) return;
+    
+    const centerX = viewWidth / 2;
+    const centerY = viewHeight / 2;
+    const radius = 30;
+    const lineWidth = 4;
+    
+    this.ctx.save();
+    
+    // 배경 원 (희미한 회색)
+    this.ctx.beginPath();
+    this.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    this.ctx.lineWidth = lineWidth;
+    this.ctx.stroke();
+    
+    // 진행률 원 (희미한 흰색)
+    const startAngle = -Math.PI / 2;
+    const endAngle = startAngle + (Math.PI * 2 * progress);
+    
+    this.ctx.beginPath();
+    this.ctx.arc(centerX, centerY, radius, startAngle, endAngle);
+    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    this.ctx.lineWidth = lineWidth;
+    this.ctx.lineCap = 'round';
+    this.ctx.stroke();
+    
+    // 재장전 텍스트
+    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    this.ctx.font = '12px sans-serif';
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText('재장전', centerX, centerY);
+    
+    this.ctx.restore();
+  }
 }

@@ -10,6 +10,8 @@ export interface InputState {
   weaponScrollDelta: number;
   /** 숫자 키로 선택한 슬롯 (1-5, 없으면 0) */
   weaponSlotKey: number;
+  /** 재장전 키 (R) 눌림 */
+  reloadPressed: boolean;
 }
 
 /**
@@ -27,6 +29,9 @@ export class InputManager {
   // 무기 선택
   private weaponScrollDelta = 0;
   private weaponSlotKey = 0;
+  
+  // 재장전
+  private reloadPressed = false;
   
   private boundHandlers = {
     keydown: this.handleKeyDown.bind(this),
@@ -89,24 +94,31 @@ export class InputManager {
       mouseDown: this.mouseDown,
       weaponScrollDelta: this.weaponScrollDelta,
       weaponSlotKey: this.weaponSlotKey,
+      reloadPressed: this.reloadPressed,
     };
     
     // 한 번 읽으면 리셋
     this.weaponScrollDelta = 0;
     this.weaponSlotKey = 0;
+    this.reloadPressed = false;
     
     return state;
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
-    // 브라우저 기본 동작 방지 (WASD, 화살표, 스페이스, 숫자)
-    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', '1', '2', '3', '4', '5'].includes(e.key.toLowerCase())) {
+    // 브라우저 기본 동작 방지 (WASD, 화살표, 스페이스, 숫자, R)
+    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', '1', '2', '3', '4', '5', 'r'].includes(e.key.toLowerCase())) {
       e.preventDefault();
     }
     
     // 숫자 키 처리 (1-5)
     if (e.key >= '1' && e.key <= '5') {
       this.weaponSlotKey = parseInt(e.key);
+    }
+    
+    // 재장전 키 (R)
+    if (e.key.toLowerCase() === 'r') {
+      this.reloadPressed = true;
     }
     
     this.keys.add(e.key.toLowerCase());

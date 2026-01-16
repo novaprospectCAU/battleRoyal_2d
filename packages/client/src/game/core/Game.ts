@@ -39,6 +39,15 @@ export class Game {
   // 무기 슬롯 시스템 (5슬롯)
   private weaponSlots: (WeaponDef | null)[] = [null, null, null, null, null];
   private currentSlotIndex = 0;
+  
+  // 탄약 상태 (슬롯별)
+  private ammoInMagazine: number[] = [0, 0, 0, 0, 0];  // 현재 장탄수
+  private ammoReserve: Map<string, number> = new Map(); // 탄약 타입별 보유량
+  
+  // 재장전 상태
+  private isReloading = false;
+  private reloadStartTime = 0;
+  private reloadDuration = 0;
 
   // 상태
   private isRunning = false;
@@ -86,6 +95,16 @@ export class Game {
     this.weaponSlots[1] = WEAPONS['rifle_assault'];
     this.weaponSlots[2] = WEAPONS['shotgun_pump'];
     this.currentSlotIndex = 0;
+    
+    // 초기 탄약 설정
+    this.ammoInMagazine[0] = WEAPONS['pistol_proto'].magazineSize;
+    this.ammoInMagazine[1] = WEAPONS['rifle_assault'].magazineSize;
+    this.ammoInMagazine[2] = WEAPONS['shotgun_pump'].magazineSize;
+    
+    // 탄약 보유량 (테스트용)
+    this.ammoReserve.set('4mm', 50);
+    this.ammoReserve.set('9mm', 120);
+    this.ammoReserve.set('shotgun', 24);
   }
 
   /** 캔버스 크기 설정 */
@@ -145,6 +164,9 @@ export class Game {
 
   /** 무기 슬롯 변경 (휠) */
   private changeWeaponSlot(delta: number): void {
+    // 재장전 중이면 무기 변경 불가
+    if (this.isReloading) return;
+    
     // 다음/이전 무기 찾기 (비어있지 않은 슬롯)
     let newIndex = this.currentSlotIndex;
     const totalSlots = this.weaponSlots.length;
@@ -161,6 +183,9 @@ export class Game {
 
   /** 무기 슬롯 직접 선택 (숫자 키) */
   private selectWeaponSlot(slotNumber: number): void {
+    // 재장전 중이면 무기 변경 불가
+    if (this.isReloading) return;
+    
     const index = slotNumber - 1; // 1-5 -> 0-4
     if (index >= 0 && index < this.weaponSlots.length) {
       if (this.weaponSlots[index] !== null) {
@@ -170,12 +195,112 @@ export class Game {
     }
   }
 
+  /** 재장전 시작 */
+  private startReload(): void {
+    // 이미 재장전 중이면 무시 (취소는 cancelReload에서)
+    if (this.isReloading) return;
+    
+    const weapon = this.getCurrentWeapon();
+    if (!weapon) return;
+    
+    const currentAmmo = this.ammoInMagazine[this.currentSlotIndex];
+    const maxAmmo = weapon.magazineSize;
+    const reserveAmmo = this.ammoReserve.get(weapon.ammoType) ?? 0;
+    
+    // 이미 최대 장탄수이거나 보유 탄약이 없으면 재장전 불가
+    if (currentAmmo >= maxAmmo || reserveAmmo <= 0) return;
+    
+    this.isReloading = true;
+    this.reloadStartTime = performance.now();
+    
+    // 샷건은 한 발당 reloadTime, 다른 무기는 전체 재장전
+    this.reloadDuration = weapon.reloadTime;
+  }
+
+  /** 재장전 취소 */
+  private cancelReload(): void {
+    if (!this.isReloading) return;
+    this.isReloading = false;
+  }
+
+  /** 재장전 완료 처리 */
+  private completeReload(): void {
+    const weapon = this.getCurrentWeapon();
+    if (!weapon) {
+      this.isReloading = false;
+      return;
+    }
+    
+    const currentAmmo = this.ammoInMagazine[this.currentSlotIndex];
+    const maxAmmo = weapon.magazineSize;
+    const reserveAmmo = this.ammoReserve.get(weapon.ammoType) ?? 0;
+    
+    // 샷건: 한 발만 장전
+    if (weapon.category === 'shotgun') {
+      if (currentAmmo < maxAmmo && reserveAmmo > 0) {
+        this.ammoInMagazine[this.currentSlotIndex] += 1;
+        this.ammoReserve.set(weapon.ammoType, reserveAmmo - 1);
+        
+        // 아직 더 장전할 수 있으면 계속 재장전
+        const newAmmo = this.ammoInMagazine[this.currentSlotIndex];
+        const newReserve = this.ammoReserve.get(weapon.ammoType) ?? 0;
+        if (newAmmo < maxAmmo && newReserve > 0) {
+          // 다음 탄 재장전 시작
+          this.reloadStartTime = performance.now();
+          this.reloadDuration = weapon.reloadTime;
+          return; // 재장전 계속
+        }
+      }
+      this.isReloading = false;
+    } else {
+      // 일반 무기: 한 번에 전체 장전
+      const neededAmmo = maxAmmo - currentAmmo;
+      const ammoToLoad = Math.min(neededAmmo, reserveAmmo);
+      
+      this.ammoInMagazine[this.currentSlotIndex] += ammoToLoad;
+      this.ammoReserve.set(weapon.ammoType, reserveAmmo - ammoToLoad);
+      
+      this.isReloading = false;
+    }
+  }
+
+  /** 재장전 업데이트 */
+  private updateReload(): void {
+    if (!this.isReloading) return;
+    
+    const now = performance.now();
+    if (now - this.reloadStartTime >= this.reloadDuration) {
+      this.completeReload();
+    }
+  }
+
+  /** 재장전 진행률 (0~1) */
+  private getReloadProgress(): number {
+    if (!this.isReloading) return 0;
+    const elapsed = performance.now() - this.reloadStartTime;
+    return Math.min(1, elapsed / this.reloadDuration);
+  }
+
   /** 매 틱 업데이트 (고정 시간) */
   private update(dt: number): void {
     // 입력 처리
     const input = this.inputManager.getInput();
     
-    // 무기 선택 처리
+    // 재장전 업데이트
+    this.updateReload();
+    
+    // 재장전 입력 (R키)
+    if (input.reloadPressed) {
+      if (this.isReloading) {
+        // 재장전 중이면 취소
+        this.cancelReload();
+      } else {
+        // 재장전 시작
+        this.startReload();
+      }
+    }
+    
+    // 무기 선택 처리 (재장전 중이면 changeWeaponSlot/selectWeaponSlot 내부에서 무시)
     if (input.weaponScrollDelta !== 0) {
       this.changeWeaponSlot(input.weaponScrollDelta);
     }
@@ -202,7 +327,7 @@ export class Game {
     // 이동 적용
     this.localPlayer.setMovement(moveX, moveY);
     
-    // 발사 처리
+    // 발사 처리 (재장전 중이면 handleFiring 내부에서 무시)
     this.handleFiring(input.mouseDown);
     
     // 플레이어 업데이트
@@ -219,8 +344,20 @@ export class Game {
 
   /** 발사 처리 */
   private handleFiring(mouseDown: boolean): void {
+    // 재장전 중이면 발사 불가
+    if (this.isReloading) {
+      this.wasMouseDown = mouseDown;
+      return;
+    }
+    
     const weapon = this.getCurrentWeapon();
     if (!weapon) {
+      this.wasMouseDown = mouseDown;
+      return;
+    }
+    
+    // 탄약이 없으면 발사 불가 (자동 재장전 없음)
+    if (this.ammoInMagazine[this.currentSlotIndex] <= 0) {
       this.wasMouseDown = mouseDown;
       return;
     }
@@ -253,6 +390,9 @@ export class Game {
   private fire(): void {
     const weapon = this.getCurrentWeapon();
     if (!weapon) return;
+    
+    // 탄약 소모
+    this.ammoInMagazine[this.currentSlotIndex]--;
     
     if (this.projectiles.length >= PROJECTILE_CONFIG.maxProjectiles) {
       // 가장 오래된 투사체 제거
@@ -403,6 +543,29 @@ export class Game {
       rect.width / 2,
       rect.height - 80
     );
+    
+    // HUD: 우측 하단 무기 상태
+    const currentWeapon = this.getCurrentWeapon();
+    const currentAmmo = this.ammoInMagazine[this.currentSlotIndex];
+    const reserveAmmo = currentWeapon 
+      ? (this.ammoReserve.get(currentWeapon.ammoType) ?? 0) 
+      : 0;
+    this.renderer.drawWeaponStatus(
+      currentWeapon,
+      currentAmmo,
+      reserveAmmo,
+      rect.width,
+      rect.height
+    );
+    
+    // 재장전 인디케이터 (화면 중앙)
+    if (this.isReloading) {
+      this.renderer.drawReloadIndicator(
+        this.getReloadProgress(),
+        rect.width,
+        rect.height
+      );
+    }
     
     // FPS 업데이트
     this.currentFps = this.gameLoop.getCurrentFps();
