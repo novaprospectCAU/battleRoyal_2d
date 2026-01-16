@@ -455,8 +455,14 @@ export class Game {
     
     // 총구 위치 (플레이어 앞)
     const muzzleOffset = PLAYER_CONFIG.radius + 10;
-    const startX = player.x + Math.cos(player.rotation) * muzzleOffset;
-    const startY = player.y + Math.sin(player.rotation) * muzzleOffset;
+    let startX = player.x + Math.cos(player.rotation) * muzzleOffset;
+    let startY = player.y + Math.sin(player.rotation) * muzzleOffset;
+    
+    // 시작 위치가 벽 안에 있으면 플레이어 위치에서 시작
+    if (!this.tileMap.isWalkable(startX, startY)) {
+      startX = player.x;
+      startY = player.y;
+    }
     
     // 투사체 생성
     for (let i = 0; i < weapon.projectileCount; i++) {
@@ -528,7 +534,11 @@ export class Game {
       }
       
       // 벽 충돌 체크 (레이캐스트 스타일)
-      if (this.checkProjectileWallCollision(prevX, prevY, proj.x, proj.y)) {
+      const wallHit = this.checkProjectileWallCollision(prevX, prevY, proj.x, proj.y);
+      if (wallHit.hit) {
+        // 충돌 직전 위치로 이동 후 제거 (렌더링 시 벽 가까이에서 사라지도록)
+        proj.x = wallHit.x;
+        proj.y = wallHit.y;
         proj.deactivate();
         this.projectiles.splice(i, 1);
         continue;
@@ -594,24 +604,30 @@ export class Game {
     fromY: number,
     toX: number,
     toY: number
-  ): boolean {
+  ): { hit: boolean; x: number; y: number } {
     // 간단한 샘플링 방식 (레이캐스트 대신)
     const dx = toX - fromX;
     const dy = toY - fromY;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const steps = Math.ceil(dist / 8); // 8px 간격으로 체크
+    const steps = Math.max(1, Math.ceil(dist / 4)); // 4px 간격으로 체크 (더 정밀하게)
     
-    for (let i = 0; i <= steps; i++) {
+    for (let i = 1; i <= steps; i++) {
       const t = i / steps;
       const x = fromX + dx * t;
       const y = fromY + dy * t;
       
       if (!this.tileMap.isWalkable(x, y)) {
-        return true;
+        // 충돌 직전 위치 반환 (벽 바로 앞)
+        const prevT = (i - 1) / steps;
+        return {
+          hit: true,
+          x: fromX + dx * prevT,
+          y: fromY + dy * prevT,
+        };
       }
     }
     
-    return false;
+    return { hit: false, x: toX, y: toY };
   }
 
   /** 맵 내부 체크 */

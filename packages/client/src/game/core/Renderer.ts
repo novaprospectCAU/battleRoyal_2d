@@ -467,13 +467,13 @@ export class Renderer {
     this.ctx.font = 'bold 18px sans-serif';
     this.ctx.textAlign = 'right';
     this.ctx.textBaseline = 'bottom';
-    this.ctx.fillText(`${weapon.name} (${weapon.ammoType})`, x, y - 20);
+    this.ctx.fillText(`${weapon.name} (${weapon.ammoType})`, x, y - 35);
     
     // 장탄수 / 보유 탄약
     const ammoColor = ammoInMag > 0 ? '#ffffff' : '#ff4444';
     this.ctx.fillStyle = ammoColor;
     this.ctx.font = 'bold 24px sans-serif';
-    this.ctx.fillText(`${ammoInMag}`, x - 50, y);
+    this.ctx.fillText(`${ammoInMag}`, x - 60, y);
     
     this.ctx.fillStyle = '#888888';
     this.ctx.font = '16px sans-serif';
