@@ -4,10 +4,15 @@ import { Camera } from '../world/Camera';
 import { TileMap } from '../world/TileMap';
 import { InputManager } from '../input/InputManager';
 import { Player } from '../entities/Player';
+import { Projectile, generateProjectileId } from '../entities/Projectile';
 import { 
   PLAYER_CONFIG,
   RENDER_CONFIG,
   TILE_SIZE,
+  WEAPONS,
+  DEFAULT_WEAPON_ID,
+  PROJECTILE_CONFIG,
+  type WeaponDef,
 } from '@battle-royal/shared';
 
 /**
@@ -25,6 +30,15 @@ export class Game {
   // 플레이어
   private localPlayer: Player;
   private players: Map<string, Player> = new Map();
+
+  // 투사체
+  private projectiles: Projectile[] = [];
+  private lastFireTime = 0;
+  private wasMouseDown = false;
+
+  // 무기 슬롯 시스템 (5슬롯)
+  private weaponSlots: (WeaponDef | null)[] = [null, null, null, null, null];
+  private currentSlotIndex = 0;
 
   // 상태
   private isRunning = false;
@@ -63,6 +77,15 @@ export class Game {
 
     // 카메라가 플레이어 따라가도록
     this.camera.follow(this.localPlayer);
+
+    // 기본 무기 슬롯 설정
+    // 슬롯 1: 권총 (기본)
+    // 슬롯 2-3: 주무기
+    // 슬롯 4-5: 빈 슬롯
+    this.weaponSlots[0] = WEAPONS['pistol_proto'];
+    this.weaponSlots[1] = WEAPONS['rifle_assault'];
+    this.weaponSlots[2] = WEAPONS['shotgun_pump'];
+    this.currentSlotIndex = 0;
   }
 
   /** 캔버스 크기 설정 */
@@ -115,10 +138,50 @@ export class Game {
     return this.currentFps;
   }
 
+  /** 현재 무기 가져오기 */
+  private getCurrentWeapon(): WeaponDef | null {
+    return this.weaponSlots[this.currentSlotIndex];
+  }
+
+  /** 무기 슬롯 변경 (휠) */
+  private changeWeaponSlot(delta: number): void {
+    // 다음/이전 무기 찾기 (비어있지 않은 슬롯)
+    let newIndex = this.currentSlotIndex;
+    const totalSlots = this.weaponSlots.length;
+    
+    for (let i = 0; i < totalSlots; i++) {
+      newIndex = (newIndex + delta + totalSlots) % totalSlots;
+      if (this.weaponSlots[newIndex] !== null) {
+        this.currentSlotIndex = newIndex;
+        this.lastFireTime = 0; // 무기 변경 시 발사 쿨다운 리셋
+        return;
+      }
+    }
+  }
+
+  /** 무기 슬롯 직접 선택 (숫자 키) */
+  private selectWeaponSlot(slotNumber: number): void {
+    const index = slotNumber - 1; // 1-5 -> 0-4
+    if (index >= 0 && index < this.weaponSlots.length) {
+      if (this.weaponSlots[index] !== null) {
+        this.currentSlotIndex = index;
+        this.lastFireTime = 0;
+      }
+    }
+  }
+
   /** 매 틱 업데이트 (고정 시간) */
   private update(dt: number): void {
     // 입력 처리
     const input = this.inputManager.getInput();
+    
+    // 무기 선택 처리
+    if (input.weaponScrollDelta !== 0) {
+      this.changeWeaponSlot(input.weaponScrollDelta);
+    }
+    if (input.weaponSlotKey !== 0) {
+      this.selectWeaponSlot(input.weaponSlotKey);
+    }
     
     // 마우스 위치를 월드 좌표로 변환
     const worldMouseX = input.mouseX + this.camera.x;
@@ -139,6 +202,9 @@ export class Game {
     // 이동 적용
     this.localPlayer.setMovement(moveX, moveY);
     
+    // 발사 처리
+    this.handleFiring(input.mouseDown);
+    
     // 플레이어 업데이트
     for (const player of this.players.values()) {
       player.update(dt);
@@ -146,6 +212,149 @@ export class Game {
     
     // 벽 충돌 처리
     this.handlePlayerCollision(this.localPlayer);
+    
+    // 투사체 업데이트
+    this.updateProjectiles(dt);
+  }
+
+  /** 발사 처리 */
+  private handleFiring(mouseDown: boolean): void {
+    const weapon = this.getCurrentWeapon();
+    if (!weapon) {
+      this.wasMouseDown = mouseDown;
+      return;
+    }
+    
+    const now = performance.now();
+    const fireInterval = 60000 / weapon.fireRate; // ms per shot
+    
+    // 발사 가능 여부 체크
+    const canFire = now - this.lastFireTime >= fireInterval;
+    
+    // 단발 모드: 클릭 시작할 때만 발사
+    if (weapon.fireMode.includes('single')) {
+      if (mouseDown && !this.wasMouseDown && canFire) {
+        this.fire();
+        this.lastFireTime = now;
+      }
+    }
+    // 자동 모드: 홀드 시 연속 발사
+    else if (weapon.fireMode.includes('auto')) {
+      if (mouseDown && canFire) {
+        this.fire();
+        this.lastFireTime = now;
+      }
+    }
+    
+    this.wasMouseDown = mouseDown;
+  }
+
+  /** 발사 */
+  private fire(): void {
+    const weapon = this.getCurrentWeapon();
+    if (!weapon) return;
+    
+    if (this.projectiles.length >= PROJECTILE_CONFIG.maxProjectiles) {
+      // 가장 오래된 투사체 제거
+      this.projectiles.shift();
+    }
+
+    const player = this.localPlayer;
+    
+    // 총구 위치 (플레이어 앞)
+    const muzzleOffset = PLAYER_CONFIG.radius + 10;
+    const startX = player.x + Math.cos(player.rotation) * muzzleOffset;
+    const startY = player.y + Math.sin(player.rotation) * muzzleOffset;
+    
+    // 투사체 생성
+    for (let i = 0; i < weapon.projectileCount; i++) {
+      // 스프레드 계산
+      let spreadOffset = 0;
+      if (weapon.projectileCount > 1) {
+        // 여러 발: 균등 분포
+        const spreadRange = weapon.spreadAngle;
+        spreadOffset = -spreadRange / 2 + (spreadRange / (weapon.projectileCount - 1)) * i;
+      } else {
+        // 단발: 랜덤 스프레드
+        spreadOffset = (Math.random() - 0.5) * weapon.spreadAngle;
+      }
+      
+      const projectile = new Projectile(
+        generateProjectileId(),
+        player.id,
+        weapon,
+        startX,
+        startY,
+        player.rotation,
+        spreadOffset
+      );
+      
+      this.projectiles.push(projectile);
+    }
+  }
+
+  /** 투사체 업데이트 */
+  private updateProjectiles(dt: number): void {
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const proj = this.projectiles[i];
+      
+      if (!proj.isActive) {
+        this.projectiles.splice(i, 1);
+        continue;
+      }
+      
+      // 이전 위치 저장
+      const prevX = proj.x;
+      const prevY = proj.y;
+      
+      // 업데이트
+      proj.update(dt);
+      
+      // 벽 충돌 체크 (레이캐스트 스타일)
+      if (this.checkProjectileWallCollision(prevX, prevY, proj.x, proj.y)) {
+        proj.deactivate();
+        this.projectiles.splice(i, 1);
+        continue;
+      }
+      
+      // 맵 경계 체크
+      if (!this.isInMap(proj.x, proj.y)) {
+        proj.deactivate();
+        this.projectiles.splice(i, 1);
+      }
+    }
+  }
+
+  /** 투사체-벽 충돌 체크 */
+  private checkProjectileWallCollision(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number
+  ): boolean {
+    // 간단한 샘플링 방식 (레이캐스트 대신)
+    const dx = toX - fromX;
+    const dy = toY - fromY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const steps = Math.ceil(dist / 8); // 8px 간격으로 체크
+    
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const x = fromX + dx * t;
+      const y = fromY + dy * t;
+      
+      if (!this.tileMap.isWalkable(x, y)) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
+  /** 맵 내부 체크 */
+  private isInMap(x: number, y: number): boolean {
+    return x >= 0 && x < this.tileMap.getPixelWidth() &&
+           y >= 0 && y < this.tileMap.getPixelHeight();
   }
 
   /** 매 프레임 렌더링 (가변 시간) */
@@ -174,6 +383,11 @@ export class Game {
     // 맵 경계 그리기
     this.renderer.drawMapBorder(mapWidth, mapHeight);
     
+    // 투사체 그리기
+    for (const proj of this.projectiles) {
+      this.renderer.drawProjectile(proj, alpha);
+    }
+    
     // 플레이어들 그리기
     for (const player of this.players.values()) {
       this.renderer.drawPlayer(player, alpha);
@@ -181,6 +395,14 @@ export class Game {
     
     // 카메라 변환 해제
     this.renderer.endCamera();
+    
+    // HUD: 무기 슬롯 (하단 중앙)
+    this.renderer.drawWeaponSlots(
+      this.weaponSlots,
+      this.currentSlotIndex,
+      rect.width / 2,
+      rect.height - 80
+    );
     
     // FPS 업데이트
     this.currentFps = this.gameLoop.getCurrentFps();

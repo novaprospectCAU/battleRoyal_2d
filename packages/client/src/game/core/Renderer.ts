@@ -1,12 +1,15 @@
 import { 
   DEBUG_COLORS, 
   PLAYER_CONFIG,
+  PROJECTILE_CONFIG,
   TileType,
   TILE_COLORS,
   type GameMap,
+  type WeaponDef,
 } from '@battle-royal/shared';
 import type { Camera } from '../world/Camera';
 import type { Player } from '../entities/Player';
+import type { Projectile } from '../entities/Projectile';
 
 /**
  * Canvas 2D 렌더러
@@ -243,5 +246,142 @@ export class Renderer {
   drawRect(x: number, y: number, w: number, h: number, color: string): void {
     this.ctx.fillStyle = color;
     this.ctx.fillRect(x, y, w, h);
+  }
+
+  /** 투사체 그리기 */
+  drawProjectile(projectile: Projectile, alpha: number): void {
+    if (!projectile.isActive) return;
+    
+    const pos = projectile.getInterpolatedPosition(alpha);
+    const radius = PROJECTILE_CONFIG.radius;
+    
+    this.ctx.save();
+    this.ctx.translate(pos.x, pos.y);
+    this.ctx.rotate(projectile.rotation);
+    
+    // 탄환 모양 (길쭉한 타원)
+    this.ctx.beginPath();
+    this.ctx.ellipse(0, 0, radius * 2, radius, 0, 0, Math.PI * 2);
+    this.ctx.fillStyle = PROJECTILE_CONFIG.color;
+    this.ctx.fill();
+    
+    // 글로우 효과
+    this.ctx.shadowColor = PROJECTILE_CONFIG.color;
+    this.ctx.shadowBlur = 8;
+    this.ctx.fill();
+    this.ctx.shadowBlur = 0;
+    
+    this.ctx.restore();
+    
+    // 트레일 효과 (간단한 선)
+    const trailLength = 15;
+    const trailX = pos.x - Math.cos(projectile.rotation) * trailLength;
+    const trailY = pos.y - Math.sin(projectile.rotation) * trailLength;
+    
+    const gradient = this.ctx.createLinearGradient(trailX, trailY, pos.x, pos.y);
+    gradient.addColorStop(0, 'rgba(255, 200, 0, 0)');
+    gradient.addColorStop(1, 'rgba(255, 200, 0, 0.6)');
+    
+    this.ctx.beginPath();
+    this.ctx.moveTo(trailX, trailY);
+    this.ctx.lineTo(pos.x, pos.y);
+    this.ctx.strokeStyle = gradient;
+    this.ctx.lineWidth = radius * 1.5;
+    this.ctx.lineCap = 'round';
+    this.ctx.stroke();
+  }
+
+  /** 무기 HUD 그리기 (단일 무기) */
+  drawWeaponHUD(weapon: WeaponDef, x: number, y: number): void {
+    // 배경
+    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    this.ctx.fillRect(x, y, 180, 30);
+    
+    // 무기 이름
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.font = 'bold 14px sans-serif';
+    this.ctx.textAlign = 'left';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText(weapon.name, x + 10, y + 15);
+    
+    // 탄약 타입 표시
+    this.ctx.fillStyle = '#aaaaaa';
+    this.ctx.font = '12px sans-serif';
+    this.ctx.textAlign = 'right';
+    this.ctx.fillText(`[${weapon.ammoType}]`, x + 170, y + 15);
+  }
+
+  /** 무기 슬롯 HUD 그리기 (5슬롯) */
+  drawWeaponSlots(
+    slots: (WeaponDef | null)[],
+    currentSlot: number,
+    x: number,
+    y: number
+  ): void {
+    const slotWidth = 60;
+    const slotHeight = 50;
+    const gap = 4;
+    const totalWidth = slots.length * slotWidth + (slots.length - 1) * gap;
+    
+    // 중앙 정렬을 위해 시작 위치 조정 (x가 중앙 기준)
+    const startX = x - totalWidth / 2;
+    
+    for (let i = 0; i < slots.length; i++) {
+      const slotX = startX + i * (slotWidth + gap);
+      const weapon = slots[i];
+      const isActive = i === currentSlot;
+      
+      // 슬롯 배경
+      this.ctx.fillStyle = isActive 
+        ? 'rgba(255, 200, 0, 0.3)' 
+        : 'rgba(0, 0, 0, 0.5)';
+      this.ctx.fillRect(slotX, y, slotWidth, slotHeight);
+      
+      // 슬롯 테두리
+      this.ctx.strokeStyle = isActive ? '#ffcc00' : '#555555';
+      this.ctx.lineWidth = isActive ? 2 : 1;
+      this.ctx.strokeRect(slotX, y, slotWidth, slotHeight);
+      
+      // 슬롯 번호
+      this.ctx.fillStyle = isActive ? '#ffcc00' : '#888888';
+      this.ctx.font = 'bold 10px sans-serif';
+      this.ctx.textAlign = 'left';
+      this.ctx.textBaseline = 'top';
+      this.ctx.fillText(`${i + 1}`, slotX + 4, y + 4);
+      
+      if (weapon) {
+        // 무기 이름
+        this.ctx.fillStyle = isActive ? '#ffffff' : '#aaaaaa';
+        this.ctx.font = 'bold 11px sans-serif';
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        
+        // 이름이 길면 줄이기
+        const displayName = weapon.name.length > 6 
+          ? weapon.name.substring(0, 6) + '..'
+          : weapon.name;
+        this.ctx.fillText(displayName, slotX + slotWidth / 2, y + slotHeight / 2);
+        
+        // 카테고리 아이콘 (작은 텍스트)
+        this.ctx.fillStyle = isActive ? '#ffcc00' : '#666666';
+        this.ctx.font = '9px sans-serif';
+        this.ctx.textBaseline = 'bottom';
+        this.ctx.fillText(weapon.category, slotX + slotWidth / 2, y + slotHeight - 4);
+      } else {
+        // 빈 슬롯
+        this.ctx.fillStyle = '#444444';
+        this.ctx.font = '10px sans-serif';
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        this.ctx.fillText('—', slotX + slotWidth / 2, y + slotHeight / 2);
+      }
+    }
+    
+    // 조작 안내
+    this.ctx.fillStyle = '#666666';
+    this.ctx.font = '10px sans-serif';
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'top';
+    this.ctx.fillText('1-5 또는 마우스 휠로 선택', x, y + slotHeight + 6);
   }
 }

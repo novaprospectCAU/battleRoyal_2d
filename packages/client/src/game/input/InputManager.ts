@@ -6,6 +6,10 @@ export interface InputState {
   mouseX: number;
   mouseY: number;
   mouseDown: boolean;
+  /** 무기 슬롯 변경 (-1: 이전, 0: 없음, 1: 다음) */
+  weaponScrollDelta: number;
+  /** 숫자 키로 선택한 슬롯 (1-5, 없으면 0) */
+  weaponSlotKey: number;
 }
 
 /**
@@ -20,6 +24,10 @@ export class InputManager {
   private mouseY = 0;
   private mouseDown = false;
   
+  // 무기 선택
+  private weaponScrollDelta = 0;
+  private weaponSlotKey = 0;
+  
   private boundHandlers = {
     keydown: this.handleKeyDown.bind(this),
     keyup: this.handleKeyUp.bind(this),
@@ -28,6 +36,7 @@ export class InputManager {
     mouseup: this.handleMouseUp.bind(this),
     contextmenu: this.handleContextMenu.bind(this),
     blur: this.handleBlur.bind(this),
+    wheel: this.handleWheel.bind(this),
   };
 
   constructor(canvas: HTMLCanvasElement) {
@@ -46,6 +55,7 @@ export class InputManager {
     this.canvas.addEventListener('mousedown', this.boundHandlers.mousedown);
     this.canvas.addEventListener('mouseup', this.boundHandlers.mouseup);
     this.canvas.addEventListener('contextmenu', this.boundHandlers.contextmenu);
+    this.canvas.addEventListener('wheel', this.boundHandlers.wheel, { passive: false });
     
     // 캔버스 포커스
     this.canvas.focus();
@@ -61,6 +71,7 @@ export class InputManager {
     this.canvas.removeEventListener('mousedown', this.boundHandlers.mousedown);
     this.canvas.removeEventListener('mouseup', this.boundHandlers.mouseup);
     this.canvas.removeEventListener('contextmenu', this.boundHandlers.contextmenu);
+    this.canvas.removeEventListener('wheel', this.boundHandlers.wheel);
   }
 
   /** 정리 */
@@ -71,19 +82,33 @@ export class InputManager {
 
   /** 현재 입력 상태 가져오기 */
   getInput(): InputState {
-    return {
+    const state: InputState = {
       keys: new Set(this.keys),
       mouseX: this.mouseX,
       mouseY: this.mouseY,
       mouseDown: this.mouseDown,
+      weaponScrollDelta: this.weaponScrollDelta,
+      weaponSlotKey: this.weaponSlotKey,
     };
+    
+    // 한 번 읽으면 리셋
+    this.weaponScrollDelta = 0;
+    this.weaponSlotKey = 0;
+    
+    return state;
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
-    // 브라우저 기본 동작 방지 (WASD, 화살표, 스페이스)
-    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(e.key.toLowerCase())) {
+    // 브라우저 기본 동작 방지 (WASD, 화살표, 스페이스, 숫자)
+    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', '1', '2', '3', '4', '5'].includes(e.key.toLowerCase())) {
       e.preventDefault();
     }
+    
+    // 숫자 키 처리 (1-5)
+    if (e.key >= '1' && e.key <= '5') {
+      this.weaponSlotKey = parseInt(e.key);
+    }
+    
     this.keys.add(e.key.toLowerCase());
   }
 
@@ -111,6 +136,13 @@ export class InputManager {
 
   private handleContextMenu(e: MouseEvent): void {
     e.preventDefault();
+  }
+
+  private handleWheel(e: WheelEvent): void {
+    e.preventDefault();
+    // deltaY > 0: 아래로 스크롤 (다음 무기)
+    // deltaY < 0: 위로 스크롤 (이전 무기)
+    this.weaponScrollDelta = e.deltaY > 0 ? 1 : -1;
   }
 
   private handleBlur(): void {
