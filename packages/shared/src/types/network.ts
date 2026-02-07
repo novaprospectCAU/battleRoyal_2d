@@ -1,5 +1,5 @@
-import type { GameState, GamePhase } from './game.js';
-import type { Player, PlayerInput } from './player.js';
+import type { GamePhase } from './game.js';
+import type { Player } from './player.js';
 
 /** 네트워크 메시지 타입 */
 export type MessageType =

@@ -19,15 +19,12 @@ export class BotAI {
   
   // 타이밍
   private lastStateUpdate = 0;
-  private stateStartTime = 0;
   private lastFireTime = 0;
   private burstCount = 0;
   private lastBurstTime = 0;
   
   // 타겟
   private targetPlayer: Player | null = null;
-  private targetX = 0;
-  private targetY = 0;
   
   // 순찰
   private patrolTargetX = 0;
@@ -37,7 +34,6 @@ export class BotAI {
   // 자기장 정보 (외부에서 업데이트)
   private zoneCenter = { x: 0, y: 0 };
   private zoneRadius = 0;
-  private isZoneShrinking = false;
   
   constructor(player: Player, difficulty: BotDifficulty = BotDifficulty.NORMAL) {
     this.player = player;
@@ -56,11 +52,10 @@ export class BotAI {
   }
   
   /** 자기장 정보 업데이트 */
-  updateZoneInfo(centerX: number, centerY: number, radius: number, isShrinking: boolean): void {
+  updateZoneInfo(centerX: number, centerY: number, radius: number, _isShrinking: boolean): void {
     this.zoneCenter.x = centerX;
     this.zoneCenter.y = centerY;
     this.zoneRadius = radius;
-    this.isZoneShrinking = isShrinking;
   }
   
   /** 메인 업데이트 (매 게임 틱 호출) */
@@ -147,9 +142,7 @@ export class BotAI {
   }
   
   /** 상태 변경 시 초기화 */
-  private onStateChange(from: BotState, to: BotState): void {
-    this.stateStartTime = performance.now();
-    
+  private onStateChange(_from: BotState, to: BotState): void {
     if (to === BotState.IDLE) {
       // 대기 시간 설정
       const { idleTimeMin, idleTimeMax } = AI_CONFIG.patrol;
@@ -163,10 +156,10 @@ export class BotAI {
   
   /** 행동 실행 */
   private executeState(
-    dt: number,
+    _dt: number,
     tileMap: TileMap,
-    players: Map<string, Player>,
-    localPlayer: Player,
+    _players: Map<string, Player>,
+    _localPlayer: Player,
     now: number
   ): { wantsFire: boolean; targetAngle: number } {
     let wantsFire = false;

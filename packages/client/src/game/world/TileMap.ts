@@ -3,9 +3,7 @@ import {
   TileType,
   TILE_PROPERTIES,
   worldToTile,
-  tileToWorld,
   createTestMap,
-  TILE_SIZE,
 } from '@battle-royal/shared';
 
 /**

@@ -20,12 +20,10 @@ import type { ZoneState } from '../world/Zone';
  * 디버그 모드에서는 도형으로 렌더링합니다.
  */
 export class Renderer {
-  private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private debugMode = true;
 
   constructor(canvas: HTMLCanvasElement) {
-    this.canvas = canvas;
     const ctx = canvas.getContext('2d');
     if (!ctx) {
       throw new Error('Canvas 2D context not supported');

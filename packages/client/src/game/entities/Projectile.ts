@@ -1,7 +1,6 @@
-import { 
+import {
   type Projectile as ProjectileData,
   type WeaponDef,
-  PROJECTILE_CONFIG,
 } from '@battle-royal/shared';
 
 /**
