@@ -3,7 +3,7 @@ import { Renderer } from './Renderer';
 import { Camera } from '../world/Camera';
 import { TileMap } from '../world/TileMap';
 import { Zone } from '../world/Zone';
-import { InputManager } from '../input/InputManager';
+import { InputManager, type InputState } from '../input/InputManager';
 import { Player } from '../entities/Player';
 import { Projectile, generateProjectileId } from '../entities/Projectile';
 import { BotAI } from '../ai/BotAI';
@@ -466,6 +466,9 @@ export class Game {
 
   /** 매 틱 업데이트 (고정 시간) */
   private update(dt: number): void {
+    // 문 애니메이션 업데이트 (죽어도 계속 진행)
+    this.tileMap.updateDoorAnimations(dt);
+
     // 입력 처리
     const input = this.inputManager.getInput();
     
@@ -568,7 +571,10 @@ export class Game {
     
     // 이동 적용
     this.localPlayer.setMovement(moveX, moveY);
-    
+
+    // 문 상호작용
+    this.handleDoorInteraction(input);
+
     // 발사 처리 (재장전 중이면 handleFiring 내부에서 무시)
     this.handleFiring(input.mouseDown);
     
@@ -695,6 +701,13 @@ export class Game {
       if (player.isAlive) count++;
     }
     return count;
+  }
+
+  /** 문 상호작용 처리 */
+  private handleDoorInteraction(input: InputState): void {
+    if (!input.interactPressed) return;
+    const door = this.tileMap.getNearbyDoor(this.localPlayer.x, this.localPlayer.y, 48);
+    if (door) this.tileMap.toggleDoor(door.gridX, door.gridY);
   }
 
   /** 발사 처리 */
@@ -969,8 +982,24 @@ export class Game {
     this.renderer.beginCamera(this.camera);
     
     // 타일맵 그리기
-    this.renderer.drawTileMap(map, this.camera, rect.width, rect.height);
-    
+    this.renderer.drawTileMap(
+      map, this.camera, rect.width, rect.height,
+      (gx, gy) => this.tileMap.getDoorOpacity(gx, gy)
+    );
+
+    // 문 상호작용 프롬프트
+    if (this.localPlayer.isAlive) {
+      const nearbyDoor = this.tileMap.getNearbyDoor(this.localPlayer.x, this.localPlayer.y, 48);
+      if (nearbyDoor) {
+        this.renderer.drawDoorPrompt(
+          nearbyDoor.gridX,
+          nearbyDoor.gridY,
+          map.tileSize,
+          this.tileMap.isDoorOpen(nearbyDoor.gridX, nearbyDoor.gridY)
+        );
+      }
+    }
+
     // 그리드 (타일 단위, 옵션)
     this.renderer.drawGrid(mapWidth, mapHeight, TILE_SIZE);
     

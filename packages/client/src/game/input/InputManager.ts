@@ -14,6 +14,8 @@ export interface InputState {
   reloadPressed: boolean;
   /** 아이템 사용 취소 키 (F) 눌림 */
   cancelItemPressed: boolean;
+  /** 상호작용 키 (E) 눌림 */
+  interactPressed: boolean;
 }
 
 /**
@@ -37,7 +39,10 @@ export class InputManager {
   
   // 아이템 사용 취소
   private cancelItemPressed = false;
-  
+
+  // 상호작용
+  private interactPressed = false;
+
   private boundHandlers = {
     keydown: this.handleKeyDown.bind(this),
     keyup: this.handleKeyUp.bind(this),
@@ -101,20 +106,22 @@ export class InputManager {
       weaponSlotKey: this.weaponSlotKey,
       reloadPressed: this.reloadPressed,
       cancelItemPressed: this.cancelItemPressed,
+      interactPressed: this.interactPressed,
     };
-    
+
     // 한 번 읽으면 리셋
     this.weaponScrollDelta = 0;
     this.weaponSlotKey = 0;
     this.reloadPressed = false;
     this.cancelItemPressed = false;
+    this.interactPressed = false;
     
     return state;
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
     // 브라우저 기본 동작 방지 (WASD, 화살표, 스페이스, 숫자, R, F)
-    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', '1', '2', '3', '4', '5', 'r', 'f'].includes(e.key.toLowerCase())) {
+    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', '1', '2', '3', '4', '5', 'r', 'f', 'e'].includes(e.key.toLowerCase())) {
       e.preventDefault();
     }
     
@@ -132,7 +139,12 @@ export class InputManager {
     if (e.key.toLowerCase() === 'f') {
       this.cancelItemPressed = true;
     }
-    
+
+    // 상호작용 키 (E)
+    if (e.key.toLowerCase() === 'e') {
+      this.interactPressed = true;
+    }
+
     this.keys.add(e.key.toLowerCase());
   }
 

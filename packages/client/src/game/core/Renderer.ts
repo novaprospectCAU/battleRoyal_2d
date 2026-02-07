@@ -59,19 +59,33 @@ export class Renderer {
   }
 
   /** 타일맵 그리기 (카메라 범위만) */
-  drawTileMap(map: GameMap, camera: Camera, viewWidth: number, viewHeight: number): void {
+  drawTileMap(
+    map: GameMap,
+    camera: Camera,
+    viewWidth: number,
+    viewHeight: number,
+    doorOpacityFn?: (gx: number, gy: number) => number
+  ): void {
     const tileSize = map.tileSize;
-    
+
     // 카메라 범위 내 타일만 렌더링 (최적화)
     const startX = Math.max(0, Math.floor(camera.x / tileSize));
     const startY = Math.max(0, Math.floor(camera.y / tileSize));
     const endX = Math.min(map.width, Math.ceil((camera.x + viewWidth) / tileSize) + 1);
     const endY = Math.min(map.height, Math.ceil((camera.y + viewHeight) / tileSize) + 1);
-    
+
     for (let y = startY; y < endY; y++) {
       for (let x = startX; x < endX; x++) {
         const tile = map.tiles[y][x];
-        this.drawTile(x, y, tile, tileSize);
+        if (tile === TileType.DOOR && doorOpacityFn) {
+          const opacity = doorOpacityFn(x, y);
+          this.ctx.save();
+          this.ctx.globalAlpha = opacity;
+          this.drawTile(x, y, tile, tileSize);
+          this.ctx.restore();
+        } else {
+          this.drawTile(x, y, tile, tileSize);
+        }
       }
     }
   }
@@ -136,6 +150,35 @@ export class Renderer {
         // 이미 바닥으로 그렸음
         break;
     }
+  }
+
+  /** 문 상호작용 프롬프트 그리기 (월드 좌표계) */
+  drawDoorPrompt(gridX: number, gridY: number, tileSize: number, isOpen: boolean): void {
+    const x = gridX * tileSize + tileSize / 2;
+    const y = gridY * tileSize - 8;
+    const text = isOpen ? 'E: 닫기' : 'E: 열기';
+
+    this.ctx.save();
+
+    // 배경
+    this.ctx.font = 'bold 12px sans-serif';
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'bottom';
+    const metrics = this.ctx.measureText(text);
+    const padding = 4;
+    const bgWidth = metrics.width + padding * 2;
+    const bgHeight = 18;
+
+    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    this.ctx.beginPath();
+    this.ctx.roundRect(x - bgWidth / 2, y - bgHeight, bgWidth, bgHeight, 3);
+    this.ctx.fill();
+
+    // 텍스트
+    this.ctx.fillStyle = '#ffcc00';
+    this.ctx.fillText(text, x, y - 2);
+
+    this.ctx.restore();
   }
 
   /** 그리드 그리기 (옵션) */

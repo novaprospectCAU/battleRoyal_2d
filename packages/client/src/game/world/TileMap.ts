@@ -6,16 +6,98 @@ import {
   createTestMap,
 } from '@battle-royal/shared';
 
+interface DoorState {
+  isOpen: boolean;
+  opacity: number;       // 현재 opacity (1.0=닫힘, 0.3=열림)
+  targetOpacity: number; // 애니메이션 목표
+}
+
 /**
  * 타일맵 클래스
  * 맵 데이터 관리 및 충돌 판정
  */
 export class TileMap {
   private map: GameMap;
+  private doorStates: Map<string, DoorState> = new Map();
 
   constructor() {
     // 테스트 맵 생성
     this.map = createTestMap();
+    this.initDoorStates();
+  }
+
+  /** 맵의 모든 DOOR 타일에 대한 초기 상태 생성 */
+  private initDoorStates(): void {
+    for (let y = 0; y < this.map.height; y++) {
+      for (let x = 0; x < this.map.width; x++) {
+        if (this.map.tiles[y][x] === TileType.DOOR) {
+          this.doorStates.set(`${x},${y}`, { isOpen: false, opacity: 1.0, targetOpacity: 1.0 });
+        }
+      }
+    }
+  }
+
+  /** 문이 열려 있는지 확인 */
+  isDoorOpen(gridX: number, gridY: number): boolean {
+    const state = this.doorStates.get(`${gridX},${gridY}`);
+    return state ? state.isOpen : false;
+  }
+
+  /** 문 열기/닫기 토글 */
+  toggleDoor(gridX: number, gridY: number): void {
+    const state = this.doorStates.get(`${gridX},${gridY}`);
+    if (!state) return;
+    state.isOpen = !state.isOpen;
+    state.targetOpacity = state.isOpen ? 0.3 : 1.0;
+  }
+
+  /** 문의 현재 opacity 반환 */
+  getDoorOpacity(gridX: number, gridY: number): number {
+    const state = this.doorStates.get(`${gridX},${gridY}`);
+    return state ? state.opacity : 1.0;
+  }
+
+  /** 문 애니메이션 업데이트 */
+  updateDoorAnimations(dt: number): void {
+    const speed = 4.0; // per second (~250ms 전환)
+    const dtSec = dt / 1000;
+    for (const state of this.doorStates.values()) {
+      if (state.opacity !== state.targetOpacity) {
+        const diff = state.targetOpacity - state.opacity;
+        const step = speed * dtSec;
+        if (Math.abs(diff) <= step) {
+          state.opacity = state.targetOpacity;
+        } else {
+          state.opacity += Math.sign(diff) * step;
+        }
+      }
+    }
+  }
+
+  /** 플레이어 근처의 가장 가까운 문 찾기 */
+  getNearbyDoor(worldX: number, worldY: number, radius: number): { gridX: number; gridY: number } | null {
+    const { x: cx, y: cy } = worldToTile(worldX, worldY, this.map.tileSize);
+    let bestDist = Infinity;
+    let bestDoor: { gridX: number; gridY: number } | null = null;
+
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const gx = cx + dx;
+        const gy = cy + dy;
+        if (this.getTileAtGrid(gx, gy) === TileType.DOOR) {
+          const tileCenterX = gx * this.map.tileSize + this.map.tileSize / 2;
+          const tileCenterY = gy * this.map.tileSize + this.map.tileSize / 2;
+          const ddx = worldX - tileCenterX;
+          const ddy = worldY - tileCenterY;
+          const dist = Math.sqrt(ddx * ddx + ddy * ddy);
+          if (dist <= radius && dist < bestDist) {
+            bestDist = dist;
+            bestDoor = { gridX: gx, gridY: gy };
+          }
+        }
+      }
+    }
+    return bestDoor;
   }
 
   /** 맵 데이터 가져오기 */
@@ -54,6 +136,10 @@ export class TileMap {
   /** 특정 위치가 이동 가능한지 */
   isWalkable(worldX: number, worldY: number): boolean {
     const tile = this.getTileAt(worldX, worldY);
+    if (tile === TileType.DOOR) {
+      const { x, y } = worldToTile(worldX, worldY, this.map.tileSize);
+      return this.isDoorOpen(x, y);
+    }
     const props = TILE_PROPERTIES[tile];
     return props.collision === 0; // CollisionType.NONE
   }
@@ -108,7 +194,7 @@ export class TileMap {
         const tile = this.getTileAtGrid(tx, ty);
         const props = TILE_PROPERTIES[tile];
 
-        if (props.collision !== 0) {
+        if (props.collision !== 0 && !(tile === TileType.DOOR && this.isDoorOpen(tx, ty))) {
           // 타일 AABB
           const tileLeft = tx * tileSize;
           const tileRight = (tx + 1) * tileSize;
@@ -167,6 +253,10 @@ export class TileMap {
   /** 특정 위치가 시야를 차단하는지 확인 */
   blocksVision(worldX: number, worldY: number): boolean {
     const tile = this.getTileAt(worldX, worldY);
+    if (tile === TileType.DOOR) {
+      const { x, y } = worldToTile(worldX, worldY, this.map.tileSize);
+      return !this.isDoorOpen(x, y);
+    }
     const props = TILE_PROPERTIES[tile];
     return props.blocksVision;
   }
