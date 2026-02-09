@@ -46,57 +46,78 @@ export function createTestMap(): GameMap {
     tiles[y][MAP_WIDTH_TILES - 1] = TileType.WALL;
   }
   
-  // 건물 1 (좌상단, 8x8)
-  addBuilding(tiles, 8, 8, 8, 8);
-  
-  // 건물 2 (우상단, 6x10)
-  addBuilding(tiles, 48, 6, 6, 10);
-  
-  // 건물 3 (중앙, 10x10)
-  addBuilding(tiles, 27, 27, 10, 10);
-  
-  // 건물 4 (좌하단, 6x6)
-  addBuilding(tiles, 10, 48, 6, 6);
-  
-  // 건물 5 (우하단, 8x6)
-  addBuilding(tiles, 46, 50, 8, 6);
-  
-  // 중앙에 추가 장애물들 (반벽)
-  addHalfWallLine(tiles, 20, 20, 6, true);  // 세로
-  addHalfWallLine(tiles, 40, 35, 8, false); // 가로
-  addHalfWallLine(tiles, 15, 40, 5, true);  // 세로
-  
-  // 스폰 포인트 (맵 외곽 근처)
+  // === 건물 배치 (15개) ===
+
+  // 좌상 지역
+  addBuilding(tiles, 5, 5, 8, 8);
+  addBuilding(tiles, 16, 4, 6, 6);
+  addBuilding(tiles, 5, 18, 6, 8);
+
+  // 우상 지역
+  addBuilding(tiles, 44, 4, 8, 6);
+  addBuilding(tiles, 54, 8, 6, 8);
+  addBuilding(tiles, 44, 14, 6, 6);
+
+  // 중앙 지역 (큰 건물 + 주변)
+  addBuilding(tiles, 26, 26, 12, 12);
+  addBuilding(tiles, 18, 18, 6, 6);
+  addBuilding(tiles, 40, 20, 6, 6);
+  addBuilding(tiles, 20, 38, 6, 6);
+
+  // 좌하 지역
+  addBuilding(tiles, 4, 44, 8, 8);
+  addBuilding(tiles, 15, 50, 6, 6);
+
+  // 우하 지역
+  addBuilding(tiles, 46, 46, 8, 8);
+  addBuilding(tiles, 54, 54, 6, 6);
+  addBuilding(tiles, 38, 52, 6, 6);
+
+  // 야외 장애물 (반벽)
+  addHalfWallLine(tiles, 30, 8, 5, true);
+  addHalfWallLine(tiles, 8, 34, 6, false);
+  addHalfWallLine(tiles, 50, 38, 5, true);
+  addHalfWallLine(tiles, 34, 48, 6, false);
+  addHalfWallLine(tiles, 22, 12, 4, true);
+  addHalfWallLine(tiles, 48, 28, 4, false);
+
+  // === 스폰 포인트 (맵 전체에 고르게 분산, 건물 밖) ===
   const playerSpawns: { x: number; y: number }[] = [];
-  const spawnMargin = 3;
-  
-  // 상단
-  for (let i = 0; i < 8; i++) {
-    playerSpawns.push({
-      x: (spawnMargin + 1 + i * 7) * TILE_SIZE + TILE_SIZE / 2,
-      y: (spawnMargin + 1) * TILE_SIZE + TILE_SIZE / 2,
-    });
-  }
-  // 하단
-  for (let i = 0; i < 8; i++) {
-    playerSpawns.push({
-      x: (spawnMargin + 1 + i * 7) * TILE_SIZE + TILE_SIZE / 2,
-      y: (MAP_HEIGHT_TILES - spawnMargin - 2) * TILE_SIZE + TILE_SIZE / 2,
-    });
-  }
-  // 좌측
-  for (let i = 0; i < 8; i++) {
-    playerSpawns.push({
-      x: (spawnMargin + 1) * TILE_SIZE + TILE_SIZE / 2,
-      y: (spawnMargin + 1 + i * 7) * TILE_SIZE + TILE_SIZE / 2,
-    });
-  }
-  // 우측
-  for (let i = 0; i < 8; i++) {
-    playerSpawns.push({
-      x: (MAP_WIDTH_TILES - spawnMargin - 2) * TILE_SIZE + TILE_SIZE / 2,
-      y: (spawnMargin + 1 + i * 7) * TILE_SIZE + TILE_SIZE / 2,
-    });
+
+  // 4x4 그리드로 16개 스폰 (맵을 4등분)
+  const gridSize = 4;
+  const cellW = Math.floor((MAP_WIDTH_TILES - 4) / gridSize);
+  const cellH = Math.floor((MAP_HEIGHT_TILES - 4) / gridSize);
+  for (let gy = 0; gy < gridSize; gy++) {
+    for (let gx = 0; gx < gridSize; gx++) {
+      const cx = 2 + gx * cellW + Math.floor(cellW / 2);
+      const cy = 2 + gy * cellH + Math.floor(cellH / 2);
+      // 해당 위치가 벽이면 주변 빈 타일 찾기
+      let spawnX = cx;
+      let spawnY = cy;
+      if (tiles[spawnY][spawnX] !== TileType.FLOOR) {
+        let found = false;
+        for (let r = 1; r < 5 && !found; r++) {
+          for (let dy = -r; dy <= r && !found; dy++) {
+            for (let dx = -r; dx <= r && !found; dx++) {
+              const nx = cx + dx;
+              const ny = cy + dy;
+              if (nx > 0 && nx < MAP_WIDTH_TILES - 1 && ny > 0 && ny < MAP_HEIGHT_TILES - 1) {
+                if (tiles[ny][nx] === TileType.FLOOR) {
+                  spawnX = nx;
+                  spawnY = ny;
+                  found = true;
+                }
+              }
+            }
+          }
+        }
+      }
+      playerSpawns.push({
+        x: spawnX * TILE_SIZE + TILE_SIZE / 2,
+        y: spawnY * TILE_SIZE + TILE_SIZE / 2,
+      });
+    }
   }
   
   return {

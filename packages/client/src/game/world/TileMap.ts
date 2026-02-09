@@ -243,11 +243,23 @@ export class TileMap {
     return { x: newX, y: newY, collided };
   }
 
-  /** 랜덤 스폰 포인트 가져오기 */
+  // 셔플된 스폰 포인트 (중복 방지)
+  private shuffledSpawns: { x: number; y: number }[] = [];
+  private spawnIndex = 0;
+
+  /** 고유 스폰 포인트 가져오기 (중복 없이 분산) */
   getRandomSpawn(): { x: number; y: number } {
-    const spawns = this.map.playerSpawns;
-    const index = Math.floor(Math.random() * spawns.length);
-    return spawns[index];
+    // 최초 호출 또는 소진 시 셔플
+    if (this.spawnIndex >= this.shuffledSpawns.length) {
+      this.shuffledSpawns = [...this.map.playerSpawns];
+      // Fisher-Yates 셔플
+      for (let i = this.shuffledSpawns.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [this.shuffledSpawns[i], this.shuffledSpawns[j]] = [this.shuffledSpawns[j], this.shuffledSpawns[i]];
+      }
+      this.spawnIndex = 0;
+    }
+    return this.shuffledSpawns[this.spawnIndex++];
   }
 
   /** 특정 위치가 시야를 차단하는지 확인 */

@@ -28,10 +28,10 @@ export const THROWABLES: Record<string, ThrowableDef> = {
 
 /** 아이템 스폰 설정 */
 export const ITEM_SPAWN_CONFIG = {
-  /** FLOOR 타일당 스폰 확률 (실내) */
-  spawnChance: 0.08,
-  /** 실외 FLOOR 타일 스폰 확률 배율 */
-  outdoorMultiplier: 0.15,
+  /** FLOOR 타일당 스폰 확률 (실내: 벽 인접) */
+  spawnChance: 0.18,
+  /** 실외 FLOOR 타일 스폰 확률 배율 (거의 안 뜸) */
+  outdoorMultiplier: 0.03,
   /** 아이템 줍기 반경 (px) */
   pickupRadius: 48,
 } as const;
