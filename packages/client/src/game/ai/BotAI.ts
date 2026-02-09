@@ -4,6 +4,7 @@ import {
   BOT_DIFFICULTY_CONFIGS,
   AI_CONFIG,
   PLAYER_CONFIG,
+  WEAPONS,
 } from '@battle-royal/shared';
 import { Player } from '../entities/Player';
 import { TileMap } from '../world/TileMap';
@@ -15,8 +16,9 @@ import { TileMap } from '../world/TileMap';
 export class BotAI {
   private player: Player;
   private difficulty: BotDifficulty;
+  private weaponId: string;
   private state: BotState = BotState.IDLE;
-  
+
   // 타이밍
   private lastStateUpdate = 0;
   private lastFireTime = 0;
@@ -35,13 +37,14 @@ export class BotAI {
   private zoneCenter = { x: 0, y: 0 };
   private zoneRadius = 0;
   
-  constructor(player: Player, difficulty: BotDifficulty = BotDifficulty.NORMAL) {
+  constructor(player: Player, difficulty: BotDifficulty = BotDifficulty.NORMAL, weaponId = 'pistol_proto') {
     this.player = player;
     this.player.isBot = true;
     this.difficulty = difficulty;
-    
+    this.weaponId = weaponId;
+
     // 봇 이름 설정
-    const diffLabel = difficulty === BotDifficulty.EASY ? '[E]' : 
+    const diffLabel = difficulty === BotDifficulty.EASY ? '[E]' :
                       difficulty === BotDifficulty.HARD ? '[H]' : '';
     this.player.name = `Bot${diffLabel} ${player.id.slice(0, 4)}`;
   }
@@ -280,7 +283,7 @@ export class BotAI {
     if (!this.targetPlayer || !this.targetPlayer.isAlive) {
       return false;
     }
-    
+
     // 버스트 쿨다운 체크
     if (this.burstCount >= AI_CONFIG.combat.burstCount) {
       if (now - this.lastBurstTime < AI_CONFIG.combat.burstCooldown) {
@@ -288,9 +291,11 @@ export class BotAI {
       }
       this.burstCount = 0;
     }
-    
-    // 사격 간격 (기본 무기 기준 약 300ms * 배율)
-    const fireInterval = 300 * this.config.fireRateMultiplier;
+
+    // 무기의 실제 fireRate 사용 (RPM → ms 변환)
+    const weapon = WEAPONS[this.weaponId];
+    const baseInterval = weapon ? (60000 / weapon.fireRate) : 300;
+    const fireInterval = baseInterval * this.config.fireRateMultiplier;
     if (now - this.lastFireTime >= fireInterval) {
       this.lastFireTime = now;
       this.burstCount++;
@@ -299,7 +304,7 @@ export class BotAI {
       }
       return true;
     }
-    
+
     return false;
   }
   
@@ -466,5 +471,10 @@ export class BotAI {
   /** 타겟 플레이어 가져오기 (디버그용) */
   getTarget(): Player | null {
     return this.targetPlayer;
+  }
+
+  /** 봇 무기 ID 가져오기 */
+  getWeaponId(): string {
+    return this.weaponId;
   }
 }

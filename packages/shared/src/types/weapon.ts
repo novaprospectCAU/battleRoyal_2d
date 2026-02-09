@@ -45,6 +45,10 @@ export interface WeaponDef {
   
   // 관통
   penetration: number;  // 0-3 (0: 없음, 1: 연질, 2: 중질, 3: 경질)
+
+  // 버스트 발사
+  burstCount?: number;  // 버스트 발사 시 연발 수 (기본 3)
+  burstInterval?: number;  // 버스트 내 발사 간격 ms (기본 75ms)
 }
 
 /** 투사체 */

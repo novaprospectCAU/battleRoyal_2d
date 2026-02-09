@@ -7,18 +7,19 @@ import { InputManager, type InputState } from '../input/InputManager';
 import { Player } from '../entities/Player';
 import { Projectile, generateProjectileId } from '../entities/Projectile';
 import { BotAI } from '../ai/BotAI';
-import { 
+import {
   PLAYER_CONFIG,
   RENDER_CONFIG,
-  TILE_SIZE,
   WEAPONS,
   PROJECTILE_CONFIG,
+  BOT_WEAPON_POOLS,
   BotDifficulty,
   USABLE_ITEMS,
   HEAL_OVER_TIME_CONFIG,
   UsableItemType,
   FOV_CONFIG,
   type WeaponDef,
+  type FireMode,
   type UsableItemDef,
 } from '@battle-royal/shared';
 
@@ -46,6 +47,14 @@ export class Game {
   private projectiles: Projectile[] = [];
   private lastFireTime = 0;
   private wasMouseDown = false;
+
+  // 발사 모드 (슬롯별 현재 선택된 모드 인덱스)
+  private currentFireModeIndex: number[] = [0, 0, 0, 0, 0];
+
+  // 버스트 상태
+  private burstShotsRemaining = 0;
+  private lastBurstShotTime = 0;
+  private burstWeaponSlot = -1;
 
   // 무기 슬롯 시스템 (5슬롯)
   private weaponSlots: (WeaponDef | null)[] = [null, null, null, null, null];
@@ -85,6 +94,10 @@ export class Game {
   
   // 전체 플레이어 수 (게임 시작 시 고정)
   private totalPlayerCount = 0;
+
+  // 캐시된 캔버스 크기 (매 프레임 getBoundingClientRect 방지)
+  private canvasWidth = 0;
+  private canvasHeight = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -165,7 +178,7 @@ export class Game {
       BotDifficulty.NORMAL,
       BotDifficulty.HARD,
     ];
-    
+
     for (let i = 0; i < count; i++) {
       const spawn = this.tileMap.getRandomSpawn();
       const enemy = new Player(
@@ -174,17 +187,21 @@ export class Game {
         spawn.y,
         false
       );
-      
+
       // 난이도 선택
       const difficulty = difficulties[i % difficulties.length];
-      
+
+      // 난이도별 무기 풀에서 랜덤 배정
+      const weaponPool = BOT_WEAPON_POOLS[difficulty] ?? BOT_WEAPON_POOLS['normal'];
+      const weaponId = weaponPool[Math.floor(Math.random() * weaponPool.length)];
+
       // AI 생성 및 연결
-      const botAI = new BotAI(enemy, difficulty);
-      
+      const botAI = new BotAI(enemy, difficulty, weaponId);
+
       this.players.set(enemy.id, enemy);
       this.botAIs.set(enemy.id, botAI);
     }
-    
+
     // 전체 플레이어 수 설정 (로컬 플레이어 + 봇)
     this.totalPlayerCount = this.players.size;
   }
@@ -193,10 +210,13 @@ export class Game {
   private setupCanvas(): void {
     const dpr = window.devicePixelRatio || 1;
     const rect = this.canvas.getBoundingClientRect();
-    
+
+    this.canvasWidth = rect.width;
+    this.canvasHeight = rect.height;
+
     this.canvas.width = rect.width * dpr;
     this.canvas.height = rect.height * dpr;
-    
+
     const ctx = this.canvas.getContext('2d');
     if (ctx) {
       ctx.scale(dpr, dpr);
@@ -244,20 +264,41 @@ export class Game {
     return this.weaponSlots[this.currentSlotIndex];
   }
 
+  /** 현재 발사 모드 가져오기 */
+  private getCurrentFireMode(): FireMode | null {
+    const weapon = this.getCurrentWeapon();
+    if (!weapon) return null;
+    const modeIndex = this.currentFireModeIndex[this.currentSlotIndex];
+    return weapon.fireMode[modeIndex] ?? weapon.fireMode[0];
+  }
+
+  /** 발사 모드 전환 */
+  private switchFireMode(): void {
+    const weapon = this.getCurrentWeapon();
+    if (!weapon || weapon.fireMode.length <= 1) return;
+    // 버스트 중이면 전환 불가
+    if (this.burstShotsRemaining > 0) return;
+    const slot = this.currentSlotIndex;
+    this.currentFireModeIndex[slot] = (this.currentFireModeIndex[slot] + 1) % weapon.fireMode.length;
+  }
+
   /** 무기 슬롯 변경 (휠) */
   private changeWeaponSlot(delta: number): void {
     // 재장전 중이면 무기 변경 불가
     if (this.isReloading) return;
-    
+    // 버스트 진행 중이면 무기 변경 불가
+    if (this.burstShotsRemaining > 0) return;
+
     // 다음/이전 무기 찾기 (비어있지 않은 슬롯)
     let newIndex = this.currentSlotIndex;
     const totalSlots = this.weaponSlots.length;
-    
+
     for (let i = 0; i < totalSlots; i++) {
       newIndex = (newIndex + delta + totalSlots) % totalSlots;
       if (this.weaponSlots[newIndex] !== null) {
         this.currentSlotIndex = newIndex;
-        this.lastFireTime = 0; // 무기 변경 시 발사 쿨다운 리셋
+        this.lastFireTime = 0;
+        this.burstShotsRemaining = 0;
         return;
       }
     }
@@ -552,6 +593,11 @@ export class Game {
     if (input.weaponSlotKey !== 0) {
       this.selectWeaponSlot(input.weaponSlotKey);
     }
+
+    // 발사 모드 전환 (B키)
+    if (input.fireModeSwitchPressed) {
+      this.switchFireMode();
+    }
     
     // 마우스 위치를 월드 좌표로 변환
     const worldMouseX = input.mouseX + this.camera.x;
@@ -631,15 +677,14 @@ export class Game {
       
       // 봇 사격 처리
       if (aiResult.wantsFire) {
-        this.fireBotWeapon(bot, aiResult.targetAngle);
+        this.fireBotWeapon(bot, aiResult.targetAngle, botAI.getWeaponId());
       }
     }
   }
   
   /** 봇 무기 발사 */
-  private fireBotWeapon(bot: Player, angle: number): void {
-    // 봇은 기본 무기 사용
-    const weapon = WEAPONS['pistol_proto'];
+  private fireBotWeapon(bot: Player, angle: number, weaponId: string): void {
+    const weapon = WEAPONS[weaponId];
     if (!weapon) return;
     
     // 총구 위치
@@ -653,18 +698,28 @@ export class Game {
       startY = bot.y;
     }
     
-    // 투사체 생성
-    const projectile = new Projectile(
-      generateProjectileId(),
-      bot.id,
-      weapon,
-      startX,
-      startY,
-      angle,
-      (Math.random() - 0.5) * weapon.spreadAngle
-    );
-    
-    this.projectiles.push(projectile);
+    // 투사체 생성 (다중 투사체 지원)
+    for (let i = 0; i < weapon.projectileCount; i++) {
+      let spreadOffset: number;
+      if (weapon.projectileCount > 1) {
+        const spreadRange = weapon.spreadAngle;
+        spreadOffset = -spreadRange / 2 + (spreadRange / (weapon.projectileCount - 1)) * i;
+      } else {
+        spreadOffset = (Math.random() - 0.5) * weapon.spreadAngle;
+      }
+
+      const projectile = new Projectile(
+        generateProjectileId(),
+        bot.id,
+        weapon,
+        startX,
+        startY,
+        angle,
+        spreadOffset
+      );
+
+      this.projectiles.push(projectile);
+    }
   }
 
   /** 자기장 밖 데미지 적용 */
@@ -712,45 +767,80 @@ export class Game {
 
   /** 발사 처리 */
   private handleFiring(mouseDown: boolean): void {
-    // 재장전 중이면 발사 불가
+    // 재장전 중이면 발사 불가 (버스트 진행 중인 경우도 중단)
     if (this.isReloading) {
+      this.burstShotsRemaining = 0;
       this.wasMouseDown = mouseDown;
       return;
     }
-    
+
     const weapon = this.getCurrentWeapon();
     if (!weapon) {
       this.wasMouseDown = mouseDown;
       return;
     }
-    
-    // 탄약이 없으면 발사 불가 (자동 재장전 없음)
+
+    const now = performance.now();
+
+    // 버스트 연사 진행 중
+    if (this.burstShotsRemaining > 0 && this.burstWeaponSlot === this.currentSlotIndex) {
+      const burstInterval = weapon.burstInterval ?? 75;
+      if (now - this.lastBurstShotTime >= burstInterval) {
+        if (this.ammoInMagazine[this.currentSlotIndex] <= 0) {
+          this.burstShotsRemaining = 0;
+        } else {
+          this.fire();
+          this.lastBurstShotTime = now;
+          this.burstShotsRemaining--;
+          if (this.burstShotsRemaining <= 0) {
+            // 버스트 완료 후 쿨다운 시작
+            this.lastFireTime = now;
+          }
+        }
+      }
+      this.wasMouseDown = mouseDown;
+      return;
+    }
+
+    // 탄약이 없으면 발사 불가
     if (this.ammoInMagazine[this.currentSlotIndex] <= 0) {
       this.wasMouseDown = mouseDown;
       return;
     }
-    
-    const now = performance.now();
-    const fireInterval = 60000 / weapon.fireRate; // ms per shot
-    
-    // 발사 가능 여부 체크
+
+    const fireInterval = 60000 / weapon.fireRate;
     const canFire = now - this.lastFireTime >= fireInterval;
-    
-    // 단발 모드: 클릭 시작할 때만 발사
-    if (weapon.fireMode.includes('single')) {
-      if (mouseDown && !this.wasMouseDown && canFire) {
-        this.fire();
-        this.lastFireTime = now;
-      }
+    const fireMode = this.getCurrentFireMode();
+
+    switch (fireMode) {
+      case 'single':
+        // 클릭 시작할 때만 1발
+        if (mouseDown && !this.wasMouseDown && canFire) {
+          this.fire();
+          this.lastFireTime = now;
+        }
+        break;
+
+      case 'burst':
+        // 클릭 시작할 때 버스트 시작
+        if (mouseDown && !this.wasMouseDown && canFire) {
+          const burstCount = weapon.burstCount ?? 3;
+          this.fire();
+          this.lastBurstShotTime = now;
+          this.burstShotsRemaining = burstCount - 1; // 첫 발은 이미 발사
+          this.burstWeaponSlot = this.currentSlotIndex;
+        }
+        break;
+
+      case 'auto':
+        // 홀드 시 연속 발사
+        if (mouseDown && canFire) {
+          this.fire();
+          this.lastFireTime = now;
+        }
+        break;
     }
-    // 자동 모드: 홀드 시 연속 발사
-    else if (weapon.fireMode.includes('auto')) {
-      if (mouseDown && canFire) {
-        this.fire();
-        this.lastFireTime = now;
-      }
-    }
-    
+
     this.wasMouseDown = mouseDown;
   }
 
@@ -966,24 +1056,25 @@ export class Game {
 
   /** 매 프레임 렌더링 (가변 시간) */
   private render(alpha: number): void {
-    const rect = this.canvas.getBoundingClientRect();
+    const viewW = this.canvasWidth;
+    const viewH = this.canvasHeight;
     const map = this.tileMap.getMap();
     const mapWidth = this.tileMap.getPixelWidth();
     const mapHeight = this.tileMap.getPixelHeight();
-    
+
     // 카메라 업데이트 (렌더링 단계에서 보간된 위치 따라가기)
     this.camera.updateSmooth(alpha);
     this.camera.clampToMap(mapWidth, mapHeight);
-    
+
     // 배경 클리어
-    this.renderer.clear(rect.width, rect.height);
+    this.renderer.clear(viewW, viewH);
     
     // 카메라 변환 적용
     this.renderer.beginCamera(this.camera);
     
     // 타일맵 그리기
     this.renderer.drawTileMap(
-      map, this.camera, rect.width, rect.height,
+      map, this.camera, viewW, viewH,
       (gx, gy) => this.tileMap.getDoorOpacity(gx, gy)
     );
 
@@ -1000,9 +1091,6 @@ export class Game {
       }
     }
 
-    // 그리드 (타일 단위, 옵션)
-    this.renderer.drawGrid(mapWidth, mapHeight, TILE_SIZE);
-    
     // 맵 경계 그리기
     this.renderer.drawMapBorder(mapWidth, mapHeight);
     
@@ -1060,10 +1148,10 @@ export class Game {
       playerPos.y,
       playerRot,
       visionPoints,
-      rect.width,
-      rect.height
+      viewW,
+      viewH
     );
-    
+
     // 자기장 다시 그리기 (FOV 위에, 더 밝게)
     this.renderer.drawZoneOverFOV(
       this.zone.getCurrentZone(),
@@ -1071,43 +1159,45 @@ export class Game {
       mapWidth,
       mapHeight
     );
-    
+
     // 카메라 변환 해제
     this.renderer.endCamera();
-    
+
     // HUD: 무기/아이템 슬롯 (하단 중앙)
     this.renderer.drawWeaponSlots(
       this.weaponSlots,
       this.itemSlots,
       this.itemCounts,
       this.currentSlotIndex,
-      rect.width / 2,
-      rect.height - 80
+      viewW / 2,
+      viewH - 80
     );
-    
+
     // HUD: 우측 하단 무기 상태
     const currentWeapon = this.getCurrentWeapon();
     const currentAmmo = this.ammoInMagazine[this.currentSlotIndex];
-    const reserveAmmo = currentWeapon 
-      ? (this.ammoReserve.get(currentWeapon.ammoType) ?? 0) 
+    const reserveAmmo = currentWeapon
+      ? (this.ammoReserve.get(currentWeapon.ammoType) ?? 0)
       : 0;
+    const currentFireMode = this.getCurrentFireMode();
     this.renderer.drawWeaponStatus(
       currentWeapon,
       currentAmmo,
       reserveAmmo,
-      rect.width,
-      rect.height
+      viewW,
+      viewH,
+      currentFireMode
     );
-    
+
     // HUD: 좌하단 체력/회복 게이지
     this.renderer.drawHealthHUD(
       this.localPlayer.hp,
       this.localPlayer.maxHp,
       this.healOverTimeGauge,
       HEAL_OVER_TIME_CONFIG.maxGauge,
-      rect.height
+      viewH
     );
-    
+
     // 아이템 사용 인디케이터 (화면 중앙)
     if (this.isUsingItem) {
       const item = this.itemSlots[this.usingItemIndex];
@@ -1115,28 +1205,28 @@ export class Game {
       this.renderer.drawItemUseIndicator(
         this.getItemUseProgress(),
         itemName,
-        rect.width,
-        rect.height
+        viewW,
+        viewH
       );
     }
-    
+
     // 재장전 인디케이터 (화면 중앙)
     if (this.isReloading) {
       this.renderer.drawReloadIndicator(
         this.getReloadProgress(),
-        rect.width,
-        rect.height
+        viewW,
+        viewH
       );
     }
-    
+
     // HUD: 자기장 상태 (상단 중앙)
     this.renderer.drawZoneHUD(
       this.zone.getCurrentPhase(),
       this.zone.getState(),
       this.zone.getTimeRemaining(),
-      rect.width
+      viewW
     );
-    
+
     // HUD: 미니맵 (우측 상단)
     this.renderer.drawMinimap(
       this.localPlayer.x,
@@ -1145,19 +1235,20 @@ export class Game {
       this.zone.getTargetZone(),
       mapWidth,
       mapHeight,
-      rect.width,
+      viewW,
       map.tiles,
       map.tileSize
     );
-    
+
     // HUD: 생존자 수 (좌상단)
     this.renderer.drawSurvivorCount(this.getAliveCount(), this.totalPlayerCount);
-    
+
     // HUD: 킬로그 (우측 미니맵 아래)
-    this.renderer.drawKillFeed(this.killLogs, rect.width);
-    
-    // FPS 업데이트 (React UI에서 표시)
+    this.renderer.drawKillFeed(this.killLogs, viewW);
+
+    // HUD: FPS (좌상단)
     this.currentFps = this.gameLoop.getCurrentFps();
+    this.renderer.drawFps(this.currentFps);
   }
 
   /** 플레이어 벽 충돌 처리 */

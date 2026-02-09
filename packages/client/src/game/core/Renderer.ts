@@ -1,5 +1,5 @@
-import { 
-  DEBUG_COLORS, 
+import {
+  DEBUG_COLORS,
   PLAYER_CONFIG,
   PROJECTILE_CONFIG,
   TileType,
@@ -8,6 +8,7 @@ import {
   FOV_CONFIG,
   type GameMap,
   type WeaponDef,
+  type FireMode,
   type UsableItemDef,
 } from '@battle-royal/shared';
 import type { Camera } from '../world/Camera';
@@ -22,6 +23,10 @@ import type { ZoneState } from '../world/Zone';
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private debugMode = true;
+
+  // 미니맵 벽 캐시 (offscreen canvas)
+  private minimapWallCache: HTMLCanvasElement | null = null;
+  private minimapWallCacheKey = '';
 
   constructor(canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d');
@@ -370,13 +375,7 @@ export class Renderer {
     this.ctx.ellipse(0, 0, radius * 2, radius, 0, 0, Math.PI * 2);
     this.ctx.fillStyle = PROJECTILE_CONFIG.color;
     this.ctx.fill();
-    
-    // 글로우 효과
-    this.ctx.shadowColor = PROJECTILE_CONFIG.color;
-    this.ctx.shadowBlur = 8;
-    this.ctx.fill();
-    this.ctx.shadowBlur = 0;
-    
+
     this.ctx.restore();
     
     // 트레일 효과 (간단한 선)
@@ -530,33 +529,59 @@ export class Renderer {
     this.ctx.fillText('—', x + width / 2, y + height / 2);
   }
 
+  /** 발사 모드 표시 텍스트 */
+  private static readonly FIRE_MODE_LABELS: Record<string, string> = {
+    single: 'SINGLE',
+    burst: 'BURST',
+    auto: 'AUTO',
+  };
+
+  /** 발사 모드 색상 */
+  private static readonly FIRE_MODE_COLORS: Record<string, string> = {
+    single: '#88ccff',
+    burst: '#ffaa44',
+    auto: '#ff6666',
+  };
+
   /** 우측 하단 무기 상태 UI (투명 배경, 텍스트만) */
   drawWeaponStatus(
     weapon: WeaponDef | null,
     ammoInMag: number,
     ammoReserve: number,
     viewWidth: number,
-    viewHeight: number
+    viewHeight: number,
+    currentFireMode: FireMode | null = null
   ): void {
     if (!weapon) return;
-    
+
     const padding = 20;
     const x = viewWidth - padding;
     const y = viewHeight - padding;
-    
+
+    // 발사 모드 (무기 이름 위에 표시)
+    if (currentFireMode && weapon.fireMode.length > 1) {
+      const modeLabel = Renderer.FIRE_MODE_LABELS[currentFireMode] ?? currentFireMode.toUpperCase();
+      const modeColor = Renderer.FIRE_MODE_COLORS[currentFireMode] ?? '#ffffff';
+      this.ctx.fillStyle = modeColor;
+      this.ctx.font = 'bold 12px sans-serif';
+      this.ctx.textAlign = 'right';
+      this.ctx.textBaseline = 'bottom';
+      this.ctx.fillText(`[${modeLabel}]  B: 모드 전환`, x, y - 52);
+    }
+
     // 무기 이름 (사용 탄환) - 볼드체 크게
     this.ctx.fillStyle = '#ffffff';
     this.ctx.font = 'bold 18px sans-serif';
     this.ctx.textAlign = 'right';
     this.ctx.textBaseline = 'bottom';
     this.ctx.fillText(`${weapon.name} (${weapon.ammoType})`, x, y - 35);
-    
+
     // 장탄수 / 보유 탄약
     const ammoColor = ammoInMag > 0 ? '#ffffff' : '#ff4444';
     this.ctx.fillStyle = ammoColor;
     this.ctx.font = 'bold 24px sans-serif';
     this.ctx.fillText(`${ammoInMag}`, x - 60, y);
-    
+
     this.ctx.fillStyle = '#888888';
     this.ctx.font = '16px sans-serif';
     this.ctx.fillText(`/ ${ammoReserve}`, x, y);
@@ -847,6 +872,41 @@ export class Renderer {
     this.ctx.restore();
   }
 
+  /** 미니맵 벽 캐시 생성 */
+  private getMinimapWallCache(
+    tiles: TileType[][],
+    tileSize: number,
+    scale: number,
+    size: number
+  ): HTMLCanvasElement {
+    const cacheKey = `${tiles.length}_${scale}_${size}`;
+    if (this.minimapWallCache && this.minimapWallCacheKey === cacheKey) {
+      return this.minimapWallCache;
+    }
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width = size;
+    offscreen.height = size;
+    const offCtx = offscreen.getContext('2d')!;
+
+    offCtx.fillStyle = 'rgba(150, 150, 150, 0.8)';
+    const tileScaleSize = tileSize * scale;
+
+    for (let ty = 0; ty < tiles.length; ty++) {
+      for (let tx = 0; tx < tiles[ty].length; tx++) {
+        const tileType = tiles[ty][tx];
+        if (tileType === TileType.WALL || tileType === TileType.HALF_WALL) {
+          const drawSize = Math.max(1, tileScaleSize);
+          offCtx.fillRect(tx * tileScaleSize, ty * tileScaleSize, drawSize, drawSize);
+        }
+      }
+    }
+
+    this.minimapWallCache = offscreen;
+    this.minimapWallCacheKey = cacheKey;
+    return offscreen;
+  }
+
   /** 미니맵 그리기 */
   drawMinimap(
     playerX: number,
@@ -863,66 +923,52 @@ export class Renderer {
     const margin = 10;
     const x = viewWidth - size - margin;
     const y = margin;
-    
+
     // 스케일 계산
     const scale = size / Math.max(mapWidth, mapHeight);
-    
+
     this.ctx.save();
-    
+
     // 배경
     this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
     this.ctx.fillRect(x, y, size, size);
-    
+
     // 클리핑 영역 설정 (미니맵 경계 안에서만 그림)
     this.ctx.beginPath();
     this.ctx.rect(x, y, size, size);
     this.ctx.clip();
-    
-    // 벽 그리기 (지형)
+
+    // 벽 그리기 (캐시된 offscreen canvas 사용)
     if (tiles && tileSize) {
-      this.ctx.fillStyle = 'rgba(150, 150, 150, 0.8)';
-      const tileScaleSize = tileSize * scale;
-      
-      for (let ty = 0; ty < tiles.length; ty++) {
-        for (let tx = 0; tx < tiles[ty].length; tx++) {
-          const tileType = tiles[ty][tx];
-          // WALL 또는 HALF_WALL인 경우 그리기
-          if (tileType === TileType.WALL || tileType === TileType.HALF_WALL) {
-            const miniX = x + tx * tileScaleSize;
-            const miniY = y + ty * tileScaleSize;
-            // 최소 1px로 그리기
-            const drawSize = Math.max(1, tileScaleSize);
-            this.ctx.fillRect(miniX, miniY, drawSize, drawSize);
-          }
-        }
-      }
+      const wallCache = this.getMinimapWallCache(tiles, tileSize, scale, size);
+      this.ctx.drawImage(wallCache, x, y);
     }
-    
+
     // 자기장 (현재)
     const zoneX = x + currentZone.x * scale;
     const zoneY = y + currentZone.y * scale;
     const zoneR = currentZone.radius * scale;
-    
+
     // 위험 구역 (빨간색)
     this.ctx.fillStyle = 'rgba(255, 80, 80, 0.4)';
     this.ctx.beginPath();
     this.ctx.rect(x, y, size, size);
     this.ctx.arc(zoneX, zoneY, zoneR, 0, Math.PI * 2, true);
     this.ctx.fill();
-    
+
     // 안전 구역 테두리
     this.ctx.beginPath();
     this.ctx.arc(zoneX, zoneY, zoneR, 0, Math.PI * 2);
     this.ctx.strokeStyle = '#ff4444';
     this.ctx.lineWidth = 1;
     this.ctx.stroke();
-    
+
     // 다음 구역 (점선)
     if (targetZone.radius < currentZone.radius) {
       const targetX = x + targetZone.x * scale;
       const targetY = y + targetZone.y * scale;
       const targetR = targetZone.radius * scale;
-      
+
       this.ctx.beginPath();
       this.ctx.arc(targetX, targetY, targetR, 0, Math.PI * 2);
       this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
@@ -930,11 +976,11 @@ export class Renderer {
       this.ctx.stroke();
       this.ctx.setLineDash([]);
     }
-    
+
     // 플레이어 위치
     const playerMiniX = x + playerX * scale;
     const playerMiniY = y + playerY * scale;
-    
+
     this.ctx.beginPath();
     this.ctx.arc(playerMiniX, playerMiniY, 3, 0, Math.PI * 2);
     this.ctx.fillStyle = DEBUG_COLORS.localPlayer;
@@ -942,9 +988,9 @@ export class Renderer {
     this.ctx.strokeStyle = '#ffffff';
     this.ctx.lineWidth = 1;
     this.ctx.stroke();
-    
+
     this.ctx.restore();
-    
+
     // 테두리 (클리핑 영역 밖에서 그림)
     this.ctx.strokeStyle = '#444444';
     this.ctx.lineWidth = 1;
@@ -978,6 +1024,19 @@ export class Renderer {
     this.ctx.font = '16px monospace';
     this.ctx.fillText(` / ${total}`, x + 28, y + 25);
     
+    this.ctx.restore();
+  }
+
+  /** FPS 표시 (좌상단) */
+  drawFps(fps: number): void {
+    this.ctx.save();
+    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    this.ctx.fillRect(17, 48, 52, 20);
+    this.ctx.fillStyle = fps >= 50 ? '#4ade80' : fps >= 30 ? '#facc15' : '#ef4444';
+    this.ctx.font = '11px monospace';
+    this.ctx.textAlign = 'left';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText(`FPS: ${fps}`, 22, 58);
     this.ctx.restore();
   }
 

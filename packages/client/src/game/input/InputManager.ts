@@ -16,6 +16,8 @@ export interface InputState {
   cancelItemPressed: boolean;
   /** 상호작용 키 (E) 눌림 */
   interactPressed: boolean;
+  /** 발사 모드 전환 키 (B) 눌림 */
+  fireModeSwitchPressed: boolean;
 }
 
 /**
@@ -42,6 +44,9 @@ export class InputManager {
 
   // 상호작용
   private interactPressed = false;
+
+  // 발사 모드 전환
+  private fireModeSwitchPressed = false;
 
   private boundHandlers = {
     keydown: this.handleKeyDown.bind(this),
@@ -107,6 +112,7 @@ export class InputManager {
       reloadPressed: this.reloadPressed,
       cancelItemPressed: this.cancelItemPressed,
       interactPressed: this.interactPressed,
+      fireModeSwitchPressed: this.fireModeSwitchPressed,
     };
 
     // 한 번 읽으면 리셋
@@ -115,13 +121,14 @@ export class InputManager {
     this.reloadPressed = false;
     this.cancelItemPressed = false;
     this.interactPressed = false;
+    this.fireModeSwitchPressed = false;
     
     return state;
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
     // 브라우저 기본 동작 방지 (WASD, 화살표, 스페이스, 숫자, R, F)
-    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', '1', '2', '3', '4', '5', 'r', 'f', 'e'].includes(e.key.toLowerCase())) {
+    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', '1', '2', '3', '4', '5', 'r', 'f', 'e', 'b'].includes(e.key.toLowerCase())) {
       e.preventDefault();
     }
     
@@ -143,6 +150,11 @@ export class InputManager {
     // 상호작용 키 (E)
     if (e.key.toLowerCase() === 'e') {
       this.interactPressed = true;
+    }
+
+    // 발사 모드 전환 키 (B)
+    if (e.key.toLowerCase() === 'b') {
+      this.fireModeSwitchPressed = true;
     }
 
     this.keys.add(e.key.toLowerCase());
