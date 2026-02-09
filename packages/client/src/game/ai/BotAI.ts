@@ -32,10 +32,16 @@ export class BotAI {
   private patrolTargetX = 0;
   private patrolTargetY = 0;
   private idleEndTime = 0;
-  
+
   // 자기장 정보 (외부에서 업데이트)
   private zoneCenter = { x: 0, y: 0 };
   private zoneRadius = 0;
+
+  // 끼임 감지
+  private lastPositionX = 0;
+  private lastPositionY = 0;
+  private stuckTimer = 0;
+  private stuckEscapeAngle = 0;
   
   constructor(player: Player, difficulty: BotDifficulty = BotDifficulty.NORMAL, weaponId = 'pistol_proto') {
     this.player = player;
@@ -406,45 +412,79 @@ export class BotAI {
     this.moveInDirection(angle, tileMap);
   }
   
-  /** 특정 방향으로 이동 */
+  /** 특정 방향으로 이동 (벽 회피 강화) */
   private moveInDirection(angle: number, tileMap: TileMap): void {
-    let moveX = Math.cos(angle);
-    let moveY = Math.sin(angle);
-    
-    // 벽 회피 (간단한 방식)
     const checkDist = PLAYER_CONFIG.radius + 20;
-    const nextX = this.player.x + moveX * checkDist;
-    const nextY = this.player.y + moveY * checkDist;
-    
-    if (!tileMap.isWalkable(nextX, nextY)) {
-      // 벽이 있으면 좌우로 회피 시도
-      const leftAngle = angle - Math.PI / 4;
-      const rightAngle = angle + Math.PI / 4;
-      
-      const leftX = this.player.x + Math.cos(leftAngle) * checkDist;
-      const leftY = this.player.y + Math.sin(leftAngle) * checkDist;
-      
-      const rightX = this.player.x + Math.cos(rightAngle) * checkDist;
-      const rightY = this.player.y + Math.sin(rightAngle) * checkDist;
-      
-      if (tileMap.isWalkable(leftX, leftY)) {
-        moveX = Math.cos(leftAngle);
-        moveY = Math.sin(leftAngle);
-      } else if (tileMap.isWalkable(rightX, rightY)) {
-        moveX = Math.cos(rightAngle);
-        moveY = Math.sin(rightAngle);
-      } else {
-        // 둘 다 막혀있으면 정지
-        moveX = 0;
-        moveY = 0;
+
+    // 끼임 감지: 이전 위치와 거의 같으면 stuckTimer 증가
+    const movedDist = Math.sqrt(
+      (this.player.x - this.lastPositionX) ** 2 +
+      (this.player.y - this.lastPositionY) ** 2
+    );
+    if (movedDist < 2) {
+      this.stuckTimer++;
+    } else {
+      this.stuckTimer = 0;
+    }
+    this.lastPositionX = this.player.x;
+    this.lastPositionY = this.player.y;
+
+    // 심하게 끼인 경우 (약 1초 이상): 랜덤 방향으로 탈출 시도
+    if (this.stuckTimer > 20) {
+      if (this.stuckTimer % 20 === 1) {
+        this.stuckEscapeAngle = Math.random() * Math.PI * 2;
+      }
+      const mx = Math.cos(this.stuckEscapeAngle) * this.config.moveSpeedMultiplier;
+      const my = Math.sin(this.stuckEscapeAngle) * this.config.moveSpeedMultiplier;
+      this.player.setMovement(mx, my);
+
+      // 탈출 성공 시 리셋
+      if (this.stuckTimer > 60) {
+        this.stuckTimer = 0;
+      }
+      return;
+    }
+
+    // 직진 가능하면 그대로 이동
+    const nextX = this.player.x + Math.cos(angle) * checkDist;
+    const nextY = this.player.y + Math.sin(angle) * checkDist;
+
+    if (tileMap.isWalkable(nextX, nextY)) {
+      const mx = Math.cos(angle) * this.config.moveSpeedMultiplier;
+      const my = Math.sin(angle) * this.config.moveSpeedMultiplier;
+      this.player.setMovement(mx, my);
+      return;
+    }
+
+    // 벽에 막힘 → 여러 각도 시도 (±30°, ±60°, ±90°, ±120°, ±150°, 180°)
+    const offsets = [
+      Math.PI / 6,   // 30°
+      -Math.PI / 6,
+      Math.PI / 3,   // 60°
+      -Math.PI / 3,
+      Math.PI / 2,   // 90°
+      -Math.PI / 2,
+      Math.PI * 2 / 3,  // 120°
+      -Math.PI * 2 / 3,
+      Math.PI * 5 / 6,  // 150°
+      -Math.PI * 5 / 6,
+      Math.PI,       // 180° (뒤로)
+    ];
+
+    for (const offset of offsets) {
+      const tryAngle = angle + offset;
+      const tx = this.player.x + Math.cos(tryAngle) * checkDist;
+      const ty = this.player.y + Math.sin(tryAngle) * checkDist;
+      if (tileMap.isWalkable(tx, ty)) {
+        const mx = Math.cos(tryAngle) * this.config.moveSpeedMultiplier;
+        const my = Math.sin(tryAngle) * this.config.moveSpeedMultiplier;
+        this.player.setMovement(mx, my);
+        return;
       }
     }
-    
-    // 난이도별 속도 조절
-    moveX *= this.config.moveSpeedMultiplier;
-    moveY *= this.config.moveSpeedMultiplier;
-    
-    this.player.setMovement(moveX, moveY);
+
+    // 모든 방향이 막힘 → 정지
+    this.player.setMovement(0, 0);
   }
   
   /** 랜덤 순찰 목표 설정 */
