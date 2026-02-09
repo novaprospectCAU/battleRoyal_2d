@@ -839,32 +839,26 @@ export class Game {
         if (!weapon) break;
 
         if (weapon.slot === 'primary') {
-          // 슬롯 0,1 중 빈 곳에 배치
+          // 주무기: 1번 비면→1번, 1번 차고 2번 비면→2번, 둘 다 차면→현재 선택 슬롯 스왑
           if (this.weaponSlots[0] === null) {
             this.equipWeapon(0, weapon);
-            item.isActive = false;
           } else if (this.weaponSlots[1] === null) {
             this.equipWeapon(1, weapon);
-            item.isActive = false;
           } else {
-            // 둘 다 차있으면 현재 무기와 스왑 (무기 슬롯 선택 중일 때)
-            const swapIdx = this.currentSlotIndex < 2 ? this.currentSlotIndex : 0;
-            this.dropWeaponToGround(swapIdx, item.x, item.y);
+            // 현재 선택이 주무기 슬롯(0,1)이면 그 슬롯, 아니면 0번
+            const swapIdx = (this.currentSlotIndex === 0 || this.currentSlotIndex === 1)
+              ? this.currentSlotIndex : 0;
+            this.dropWeaponToGround(swapIdx, this.localPlayer.x, this.localPlayer.y);
             this.equipWeapon(swapIdx, weapon);
-            item.isActive = false;
           }
         } else {
-          // secondary → 슬롯 2
-          if (this.weaponSlots[2] === null) {
-            this.equipWeapon(2, weapon);
-            item.isActive = false;
-          } else {
-            // 스왑
-            this.dropWeaponToGround(2, item.x, item.y);
-            this.equipWeapon(2, weapon);
-            item.isActive = false;
+          // 보조무기: 3번 비면 장착, 차면 기존 버리고 장착
+          if (this.weaponSlots[2] !== null) {
+            this.dropWeaponToGround(2, this.localPlayer.x, this.localPlayer.y);
           }
+          this.equipWeapon(2, weapon);
         }
+        item.isActive = false;
         break;
       }
 
@@ -905,27 +899,44 @@ export class Game {
         const def = THROWABLES[item.itemId];
         if (!def) break;
 
-        if (this.throwableSlot && this.throwableSlot.id === item.itemId) {
-          // 같은 종류 → 스택
-          if (this.throwableCount < def.maxStack) {
-            this.throwableCount = Math.min(def.maxStack, this.throwableCount + item.quantity);
-            item.isActive = false;
-          }
-        } else if (!this.throwableSlot || this.throwableCount <= 0) {
-          // 빈 슬롯
+        if (!this.throwableSlot || this.throwableCount <= 0) {
+          // 빈 슬롯 → 장착
           this.throwableSlot = def;
           this.throwableCount = Math.min(def.maxStack, item.quantity);
-          item.isActive = false;
+        } else {
+          // 차있으면 기존 버리고 새것 장착
+          this.dropThrowableToGround(this.localPlayer.x, this.localPlayer.y);
+          this.throwableSlot = def;
+          this.throwableCount = Math.min(def.maxStack, item.quantity);
         }
+        item.isActive = false;
         break;
       }
     }
   }
 
-  /** 무기 장착 (슬롯에 배치 + 탄창 채우기) */
+  /** 투척 무기를 바닥에 드랍 */
+  private dropThrowableToGround(x: number, y: number): void {
+    if (!this.throwableSlot || this.throwableCount <= 0) return;
+
+    this.groundItems.push({
+      id: `drop-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      x,
+      y,
+      kind: 'throwable',
+      itemId: this.throwableSlot.id,
+      quantity: this.throwableCount,
+      isActive: true,
+    });
+
+    this.throwableSlot = null;
+    this.throwableCount = 0;
+  }
+
+  /** 무기 장착 (슬롯에 배치, 탄창 0발 — 탄약은 별도 줍기) */
   private equipWeapon(slotIndex: number, weapon: WeaponDef): void {
     this.weaponSlots[slotIndex] = weapon;
-    this.ammoInMagazine[slotIndex] = weapon.magazineSize;
+    this.ammoInMagazine[slotIndex] = 0;
     this.currentFireModeIndex[slotIndex] = 0;
 
     // 자동으로 해당 슬롯 선택
