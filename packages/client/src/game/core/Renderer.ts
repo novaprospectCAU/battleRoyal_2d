@@ -6,14 +6,20 @@ import {
   TILE_COLORS,
   ZONE_CONFIG,
   FOV_CONFIG,
+  WEAPONS,
+  USABLE_ITEMS,
+  THROWABLES,
   type GameMap,
   type WeaponDef,
   type FireMode,
   type UsableItemDef,
+  type ThrowableDef,
+  type GroundItem,
 } from '@battle-royal/shared';
 import type { Camera } from '../world/Camera';
 import type { Player } from '../entities/Player';
 import type { Projectile } from '../entities/Projectile';
+import type { ThrownGrenade } from '../entities/ThrownGrenade';
 import type { ZoneState } from '../world/Zone';
 
 /**
@@ -416,62 +422,61 @@ export class Renderer {
     this.ctx.fillText(`[${weapon.ammoType}]`, x + 170, y + 15);
   }
 
-  /** 무기/아이템 슬롯 HUD 그리기 (5슬롯: 무기 3 + 아이템 2) */
+  /** 무기/아이템/투척 슬롯 HUD 그리기 (6슬롯: 무기 3 + 아이템 2 + 투척 1) */
   drawWeaponSlots(
     weaponSlots: (WeaponDef | null)[],
     itemSlots: (UsableItemDef | null)[],
     itemCounts: number[],
+    throwableSlot: ThrowableDef | null,
+    throwableCount: number,
     currentSlot: number,
     x: number,
     y: number
   ): void {
-    const slotWidth = 60;
+    const slotWidth = 55;
     const slotHeight = 50;
     const gap = 4;
-    const totalSlots = 5; // 무기 3 + 아이템 2
+    const totalSlots = 6;
     const totalWidth = totalSlots * slotWidth + (totalSlots - 1) * gap;
-    
-    // 중앙 정렬을 위해 시작 위치 조정 (x가 중앙 기준)
+
     const startX = x - totalWidth / 2;
-    
+
     for (let i = 0; i < totalSlots; i++) {
       const slotX = startX + i * (slotWidth + gap);
       const isActive = i === currentSlot;
-      
+
       // 슬롯 배경
-      this.ctx.fillStyle = isActive 
-        ? 'rgba(255, 200, 0, 0.3)' 
+      this.ctx.fillStyle = isActive
+        ? 'rgba(255, 200, 0, 0.3)'
         : 'rgba(0, 0, 0, 0.5)';
       this.ctx.fillRect(slotX, y, slotWidth, slotHeight);
-      
+
       // 슬롯 테두리
       this.ctx.strokeStyle = isActive ? '#ffcc00' : '#555555';
       this.ctx.lineWidth = isActive ? 2 : 1;
       this.ctx.strokeRect(slotX, y, slotWidth, slotHeight);
-      
+
       // 슬롯 번호
       this.ctx.fillStyle = isActive ? '#ffcc00' : '#888888';
       this.ctx.font = 'bold 10px sans-serif';
       this.ctx.textAlign = 'left';
       this.ctx.textBaseline = 'top';
       this.ctx.fillText(`${i + 1}`, slotX + 4, y + 4);
-      
+
       if (i < 3) {
         // 무기 슬롯 (1-3)
         const weapon = weaponSlots[i];
         if (weapon) {
-          // 무기 이름
           this.ctx.fillStyle = isActive ? '#ffffff' : '#aaaaaa';
-          this.ctx.font = 'bold 11px sans-serif';
+          this.ctx.font = 'bold 10px sans-serif';
           this.ctx.textAlign = 'center';
           this.ctx.textBaseline = 'middle';
-          
-          const displayName = weapon.name.length > 6 
+
+          const displayName = weapon.name.length > 6
             ? weapon.name.substring(0, 6) + '..'
             : weapon.name;
           this.ctx.fillText(displayName, slotX + slotWidth / 2, y + slotHeight / 2);
-          
-          // 카테고리
+
           this.ctx.fillStyle = isActive ? '#ffcc00' : '#666666';
           this.ctx.font = '9px sans-serif';
           this.ctx.textBaseline = 'bottom';
@@ -479,29 +484,26 @@ export class Renderer {
         } else {
           this.drawEmptySlot(slotX, y, slotWidth, slotHeight);
         }
-      } else {
+      } else if (i < 5) {
         // 아이템 슬롯 (4-5)
         const itemIndex = i - 3;
         const item = itemSlots[itemIndex];
         const count = itemCounts[itemIndex];
-        
+
         if (item && count > 0) {
-          // 아이템 색상 배경
-          this.ctx.fillStyle = item.color + '40'; // 40% 투명도
+          this.ctx.fillStyle = item.color + '40';
           this.ctx.fillRect(slotX + 2, y + 2, slotWidth - 4, slotHeight - 4);
-          
-          // 아이템 이름
+
           this.ctx.fillStyle = isActive ? '#ffffff' : '#aaaaaa';
           this.ctx.font = 'bold 10px sans-serif';
           this.ctx.textAlign = 'center';
           this.ctx.textBaseline = 'middle';
-          
-          const displayName = item.name.length > 5 
+
+          const displayName = item.name.length > 5
             ? item.name.substring(0, 5) + '..'
             : item.name;
           this.ctx.fillText(displayName, slotX + slotWidth / 2, y + slotHeight / 2 - 5);
-          
-          // 수량
+
           this.ctx.fillStyle = '#ffffff';
           this.ctx.font = 'bold 14px sans-serif';
           this.ctx.textBaseline = 'bottom';
@@ -509,15 +511,41 @@ export class Renderer {
         } else {
           this.drawEmptySlot(slotX, y, slotWidth, slotHeight);
         }
+      } else {
+        // 투척 슬롯 (6)
+        if (throwableSlot && throwableCount > 0) {
+          // 색상 원
+          this.ctx.beginPath();
+          this.ctx.arc(slotX + slotWidth / 2, y + slotHeight / 2 - 5, 10, 0, Math.PI * 2);
+          this.ctx.fillStyle = throwableSlot.color;
+          this.ctx.fill();
+
+          // 이름
+          this.ctx.fillStyle = isActive ? '#ffffff' : '#aaaaaa';
+          this.ctx.font = 'bold 9px sans-serif';
+          this.ctx.textAlign = 'center';
+          this.ctx.textBaseline = 'bottom';
+          const tName = throwableSlot.name.length > 5
+            ? throwableSlot.name.substring(0, 5) + '..'
+            : throwableSlot.name;
+          this.ctx.fillText(tName, slotX + slotWidth / 2, y + slotHeight - 14);
+
+          // 수량
+          this.ctx.fillStyle = '#ffffff';
+          this.ctx.font = 'bold 14px sans-serif';
+          this.ctx.fillText(`×${throwableCount}`, slotX + slotWidth / 2, y + slotHeight - 2);
+        } else {
+          this.drawEmptySlot(slotX, y, slotWidth, slotHeight);
+        }
       }
     }
-    
+
     // 조작 안내
     this.ctx.fillStyle = '#666666';
     this.ctx.font = '10px sans-serif';
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'top';
-    this.ctx.fillText('1-5 또는 마우스 휠로 선택', x, y + slotHeight + 6);
+    this.ctx.fillText('1-6 또는 마우스 휠로 선택 · E: 줍기', x, y + slotHeight + 6);
   }
   
   /** 빈 슬롯 그리기 */
@@ -1130,5 +1158,198 @@ export class Renderer {
     this.ctx.fill(mask, 'evenodd');
 
     this.ctx.restore();
+  }
+
+  /** 바닥 아이템 그리기 (카메라 범위 내만) */
+  drawGroundItems(items: GroundItem[], camera: Camera, viewW: number, viewH: number): void {
+    const margin = 64;
+    const minX = camera.x - margin;
+    const minY = camera.y - margin;
+    const maxX = camera.x + viewW + margin;
+    const maxY = camera.y + viewH + margin;
+
+    for (const item of items) {
+      if (!item.isActive) continue;
+      if (item.x < minX || item.x > maxX || item.y < minY || item.y > maxY) continue;
+
+      this.ctx.save();
+      switch (item.kind) {
+        case 'weapon':
+          // 파란 삼각형
+          this.ctx.fillStyle = '#4488ff';
+          this.ctx.beginPath();
+          this.ctx.moveTo(item.x, item.y - 8);
+          this.ctx.lineTo(item.x - 7, item.y + 5);
+          this.ctx.lineTo(item.x + 7, item.y + 5);
+          this.ctx.closePath();
+          this.ctx.fill();
+          break;
+        case 'ammo':
+          // 노란 사각형
+          this.ctx.fillStyle = '#ddcc44';
+          this.ctx.fillRect(item.x - 5, item.y - 5, 10, 10);
+          break;
+        case 'healing':
+          // 빨간 십자
+          this.ctx.fillStyle = '#ff5555';
+          this.ctx.fillRect(item.x - 6, item.y - 2, 12, 4);
+          this.ctx.fillRect(item.x - 2, item.y - 6, 4, 12);
+          break;
+        case 'throwable':
+          // 초록 원
+          this.ctx.fillStyle = '#44cc44';
+          this.ctx.beginPath();
+          this.ctx.arc(item.x, item.y, 6, 0, Math.PI * 2);
+          this.ctx.fill();
+          break;
+      }
+
+      // 아이템명 표시
+      const name = this.getGroundItemName(item);
+      if (name) {
+        this.ctx.fillStyle = '#ffffff';
+        this.ctx.font = '9px sans-serif';
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'bottom';
+        this.ctx.fillText(name, item.x, item.y - 10);
+      }
+      this.ctx.restore();
+    }
+  }
+
+  /** 바닥 아이템 이름 가져오기 */
+  private getGroundItemName(item: GroundItem): string {
+    switch (item.kind) {
+      case 'weapon': return WEAPONS[item.itemId]?.name ?? item.itemId;
+      case 'ammo': return `${item.itemId} ×${item.quantity}`;
+      case 'healing': return USABLE_ITEMS[item.itemId]?.name ?? item.itemId;
+      case 'throwable': return THROWABLES[item.itemId]?.name ?? item.itemId;
+    }
+  }
+
+  /** 아이템 줍기 프롬프트 (월드 좌표계) */
+  drawPickupPrompt(item: GroundItem): void {
+    const name = this.getGroundItemName(item);
+    const text = `E: 줍기 [${name}]`;
+    const x = item.x;
+    const y = item.y - 22;
+
+    this.ctx.save();
+    this.ctx.font = 'bold 12px sans-serif';
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'bottom';
+    const metrics = this.ctx.measureText(text);
+    const padding = 4;
+    const bgWidth = metrics.width + padding * 2;
+    const bgHeight = 18;
+
+    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    this.ctx.beginPath();
+    this.ctx.roundRect(x - bgWidth / 2, y - bgHeight, bgWidth, bgHeight, 3);
+    this.ctx.fill();
+
+    this.ctx.fillStyle = '#ffcc00';
+    this.ctx.fillText(text, x, y - 2);
+    this.ctx.restore();
+  }
+
+  /** 투척 수류탄 그리기 */
+  drawThrownGrenade(grenade: ThrownGrenade, alpha: number): void {
+    const pos = grenade.getInterpolatedPosition(alpha);
+    const fuseProgress = grenade.getFuseProgress();
+
+    this.ctx.save();
+
+    // 본체 (작은 원)
+    this.ctx.beginPath();
+    this.ctx.arc(pos.x, pos.y, 5, 0, Math.PI * 2);
+    this.ctx.fillStyle = grenade.def.color;
+    this.ctx.fill();
+
+    // 퓨즈 깜빡임 (폭발 가까울수록 빠르게)
+    const blinkRate = 4 + fuseProgress * 12;
+    const blink = Math.sin(performance.now() / 1000 * blinkRate * Math.PI) > 0;
+    if (blink) {
+      this.ctx.beginPath();
+      this.ctx.arc(pos.x, pos.y, 3, 0, Math.PI * 2);
+      this.ctx.fillStyle = '#ff4444';
+      this.ctx.fill();
+    }
+
+    this.ctx.restore();
+  }
+
+  /** 폭발 이펙트 그리기 */
+  drawExplosions(effects: { x: number; y: number; radius: number; time: number }[]): void {
+    const now = performance.now();
+    for (const e of effects) {
+      const elapsed = now - e.time;
+      const progress = elapsed / 300; // 300ms 페이드아웃
+      if (progress >= 1) continue;
+
+      const alpha = 1 - progress;
+      const r = e.radius * (0.5 + progress * 0.5);
+
+      this.ctx.save();
+      this.ctx.globalAlpha = alpha;
+
+      // 외곽 (빨강)
+      this.ctx.beginPath();
+      this.ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
+      this.ctx.fillStyle = 'rgba(255, 80, 0, 0.6)';
+      this.ctx.fill();
+
+      // 내부 (주황/노랑)
+      this.ctx.beginPath();
+      this.ctx.arc(e.x, e.y, r * 0.5, 0, Math.PI * 2);
+      this.ctx.fillStyle = 'rgba(255, 200, 50, 0.8)';
+      this.ctx.fill();
+
+      this.ctx.restore();
+    }
+  }
+
+  /** 연막 구역 그리기 */
+  drawSmokeZones(zones: { x: number; y: number; radius: number; endTime: number }[]): void {
+    const now = performance.now();
+    for (const z of zones) {
+      const remaining = z.endTime - now;
+      if (remaining <= 0) continue;
+
+      // 마지막 2초 페이드아웃
+      const alpha = remaining < 2000 ? remaining / 2000 : 1;
+
+      this.ctx.save();
+      this.ctx.globalAlpha = alpha * 0.5;
+      this.ctx.beginPath();
+      this.ctx.arc(z.x, z.y, z.radius, 0, Math.PI * 2);
+      this.ctx.fillStyle = '#aaaaaa';
+      this.ctx.fill();
+      this.ctx.restore();
+    }
+  }
+
+  /** 투척 상태 UI (우측 하단) */
+  drawThrowableStatus(
+    throwable: ThrowableDef,
+    count: number,
+    viewWidth: number,
+    viewHeight: number
+  ): void {
+    const padding = 20;
+    const x = viewWidth - padding;
+    const y = viewHeight - padding;
+
+    // 이름
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.font = 'bold 18px sans-serif';
+    this.ctx.textAlign = 'right';
+    this.ctx.textBaseline = 'bottom';
+    this.ctx.fillText(throwable.name, x, y - 20);
+
+    // 수량
+    this.ctx.fillStyle = count > 0 ? '#ffffff' : '#ff4444';
+    this.ctx.font = 'bold 24px sans-serif';
+    this.ctx.fillText(`×${count}`, x, y);
   }
 }

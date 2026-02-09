@@ -6,6 +6,7 @@ import { Zone } from '../world/Zone';
 import { InputManager, type InputState } from '../input/InputManager';
 import { Player } from '../entities/Player';
 import { Projectile, generateProjectileId } from '../entities/Projectile';
+import { ThrownGrenade, generateGrenadeId } from '../entities/ThrownGrenade';
 import { BotAI } from '../ai/BotAI';
 import {
   PLAYER_CONFIG,
@@ -18,9 +19,19 @@ import {
   HEAL_OVER_TIME_CONFIG,
   UsableItemType,
   FOV_CONFIG,
+  TileType,
+  THROWABLES,
+  ThrowableType,
+  ITEM_SPAWN_CONFIG,
+  SPAWN_WEIGHTS,
+  SPAWN_WEAPON_POOL,
+  SPAWN_AMMO_RANGES,
   type WeaponDef,
   type FireMode,
   type UsableItemDef,
+  type ThrowableDef,
+  type GroundItem,
+  type GroundItemKind,
 } from '@battle-royal/shared';
 
 /**
@@ -48,39 +59,53 @@ export class Game {
   private lastFireTime = 0;
   private wasMouseDown = false;
 
-  // 발사 모드 (슬롯별 현재 선택된 모드 인덱스)
-  private currentFireModeIndex: number[] = [0, 0, 0, 0, 0];
+  // 발사 모드 (무기 슬롯별 현재 선택된 모드 인덱스)
+  private currentFireModeIndex: number[] = [0, 0, 0];
 
   // 버스트 상태
   private burstShotsRemaining = 0;
   private lastBurstShotTime = 0;
   private burstWeaponSlot = -1;
 
-  // 무기 슬롯 시스템 (5슬롯)
-  private weaponSlots: (WeaponDef | null)[] = [null, null, null, null, null];
-  private currentSlotIndex = 0;
-  
-  // 탄약 상태 (슬롯별)
-  private ammoInMagazine: number[] = [0, 0, 0, 0, 0];  // 현재 장탄수
+  // 6슬롯 인벤토리 시스템
+  // 슬롯 0,1: 주무기(primary) / 슬롯 2: 보조무기(secondary)
+  // 슬롯 3,4: 치료 아이템 / 슬롯 5: 투척 무기
+  private weaponSlots: (WeaponDef | null)[] = [null, null, null]; // 무기 3슬롯
+  private currentSlotIndex = 0; // 0-5 전체 슬롯 인덱스
+
+  // 탄약 상태 (무기 슬롯별)
+  private ammoInMagazine: number[] = [0, 0, 0];  // 현재 장탄수
   private ammoReserve: Map<string, number> = new Map(); // 탄약 타입별 보유량
-  
+
   // 재장전 상태
   private isReloading = false;
   private reloadStartTime = 0;
   private reloadDuration = 0;
-  
-  // 아이템 슬롯 (4,5번 슬롯)
-  private itemSlots: (UsableItemDef | null)[] = [null, null]; // 슬롯 3,4 (0-indexed)
-  private itemCounts: number[] = [0, 0]; // 아이템 수량
-  
+
+  // 아이템 슬롯 (4,5번 키 = 인덱스 3,4)
+  private itemSlots: (UsableItemDef | null)[] = [null, null];
+  private itemCounts: number[] = [0, 0];
+
+  // 투척 슬롯 (6번 키 = 인덱스 5)
+  private throwableSlot: ThrowableDef | null = null;
+  private throwableCount = 0;
+
   // 아이템 사용 상태
   private isUsingItem = false;
   private itemUseStartTime = 0;
   private itemUseDuration = 0;
-  private usingItemIndex = -1; // 사용 중인 아이템 슬롯 인덱스 (3 or 4)
-  
+  private usingItemIndex = -1;
+
   // 지속 회복 게이지
   private healOverTimeGauge = 0;
+
+  // 바닥 아이템
+  private groundItems: GroundItem[] = [];
+
+  // 투척 엔티티
+  private thrownGrenades: ThrownGrenade[] = [];
+  private smokeZones: { x: number; y: number; radius: number; endTime: number }[] = [];
+  private explosionEffects: { x: number; y: number; radius: number; time: number }[] = [];
 
   // 상태
   private isRunning = false;
@@ -139,31 +164,12 @@ export class Game {
     // 카메라가 플레이어 따라가도록
     this.camera.follow(this.localPlayer);
 
-    // 기본 무기 슬롯 설정
-    // 슬롯 1: 권총 (기본)
-    // 슬롯 2-3: 주무기
-    // 슬롯 4-5: 빈 슬롯
-    this.weaponSlots[0] = WEAPONS['pistol_proto'];
-    this.weaponSlots[1] = WEAPONS['rifle_assault'];
-    this.weaponSlots[2] = WEAPONS['shotgun_pump'];
+    // 빈 손 시작 — 무기/아이템/탄약 없음
     this.currentSlotIndex = 0;
-    
-    // 초기 탄약 설정
-    this.ammoInMagazine[0] = WEAPONS['pistol_proto'].magazineSize;
-    this.ammoInMagazine[1] = WEAPONS['rifle_assault'].magazineSize;
-    this.ammoInMagazine[2] = WEAPONS['shotgun_pump'].magazineSize;
-    
-    // 탄약 보유량 (테스트용)
-    this.ammoReserve.set('4mm', 50);
-    this.ammoReserve.set('9mm', 120);
-    this.ammoReserve.set('shotgun', 24);
-    
-    // 초기 아이템 설정 (4,5번 슬롯)
-    this.itemSlots[0] = USABLE_ITEMS['health_kit'];
-    this.itemSlots[1] = USABLE_ITEMS['heal_over_time'];
-    this.itemCounts[0] = 2; // 구급상자 2개
-    this.itemCounts[1] = 3; // 진통제 3개
-    
+
+    // 바닥 아이템 생성
+    this.generateGroundItems();
+
     // 테스트용 AI 봇 생성
     this.spawnTestEnemies(5);
   }
@@ -259,8 +265,9 @@ export class Game {
     return this.currentFps;
   }
 
-  /** 현재 무기 가져오기 */
+  /** 현재 무기 가져오기 (무기 슬롯일 때만) */
   private getCurrentWeapon(): WeaponDef | null {
+    if (this.currentSlotIndex > 2) return null;
     return this.weaponSlots[this.currentSlotIndex];
   }
 
@@ -282,6 +289,14 @@ export class Game {
     this.currentFireModeIndex[slot] = (this.currentFireModeIndex[slot] + 1) % weapon.fireMode.length;
   }
 
+  /** 슬롯이 비어있지 않은지 체크 (6슬롯 통합) */
+  private isSlotOccupied(index: number): boolean {
+    if (index < 3) return this.weaponSlots[index] !== null;
+    if (index < 5) return this.itemSlots[index - 3] !== null && this.itemCounts[index - 3] > 0;
+    if (index === 5) return this.throwableSlot !== null && this.throwableCount > 0;
+    return false;
+  }
+
   /** 무기 슬롯 변경 (휠) */
   private changeWeaponSlot(delta: number): void {
     // 재장전 중이면 무기 변경 불가
@@ -289,13 +304,13 @@ export class Game {
     // 버스트 진행 중이면 무기 변경 불가
     if (this.burstShotsRemaining > 0) return;
 
-    // 다음/이전 무기 찾기 (비어있지 않은 슬롯)
+    // 다음/이전 슬롯 찾기 (비어있지 않은 슬롯, 6슬롯)
     let newIndex = this.currentSlotIndex;
-    const totalSlots = this.weaponSlots.length;
+    const totalSlots = 6;
 
     for (let i = 0; i < totalSlots; i++) {
       newIndex = (newIndex + delta + totalSlots) % totalSlots;
-      if (this.weaponSlots[newIndex] !== null) {
+      if (this.isSlotOccupied(newIndex)) {
         this.currentSlotIndex = newIndex;
         this.lastFireTime = 0;
         this.burstShotsRemaining = 0;
@@ -304,24 +319,35 @@ export class Game {
     }
   }
 
-  /** 무기 슬롯 직접 선택 (숫자 키) */
+  /** 무기 슬롯 직접 선택 (숫자 키 1-6) */
   private selectWeaponSlot(slotNumber: number): void {
     // 재장전 중이거나 아이템 사용 중이면 불가
     if (this.isReloading || this.isUsingItem) return;
-    
-    const index = slotNumber - 1; // 1-5 -> 0-4
-    
-    // 4,5번 키는 아이템 슬롯 (인덱스 3,4 -> 아이템 슬롯 0,1)
-    if (index === 3 || index === 4) {
-      this.startUseItem(index - 3); // 0 또는 1
-      return;
-    }
-    
-    // 무기 슬롯 (1-3번)
+
+    const index = slotNumber - 1; // 1-6 -> 0-5
+
+    // 무기 슬롯 (1-3번, 인덱스 0-2)
     if (index >= 0 && index < 3) {
       if (this.weaponSlots[index] !== null) {
         this.currentSlotIndex = index;
         this.lastFireTime = 0;
+        this.burstShotsRemaining = 0;
+      }
+      return;
+    }
+
+    // 아이템 슬롯 (4,5번 키 = 인덱스 3,4 -> 아이템 슬롯 0,1)
+    if (index === 3 || index === 4) {
+      this.startUseItem(index - 3);
+      return;
+    }
+
+    // 투척 슬롯 (6번 키 = 인덱스 5)
+    if (index === 5) {
+      if (this.throwableSlot && this.throwableCount > 0) {
+        this.currentSlotIndex = 5;
+        this.lastFireTime = 0;
+        this.burstShotsRemaining = 0;
       }
     }
   }
@@ -520,7 +546,7 @@ export class Game {
       const worldMouseY = input.mouseY + this.camera.y;
       this.localPlayer.lookAt(worldMouseX, worldMouseY);
       
-      // 봇 AI/투사체/자기장은 계속 업데이트
+      // 봇 AI/투사체/수류탄/자기장은 계속 업데이트
       this.updateBotAIs(dt);
       for (const player of this.players.values()) {
         player.update(dt);
@@ -529,11 +555,13 @@ export class Game {
         }
       }
       this.updateProjectiles(dt);
+      this.updateGrenades(dt);
+      this.updateEffects();
       this.zone.update();
       this.applyZoneDamage(dt);
       return;
     }
-    
+
     // 아이템 사용 업데이트
     this.updateItemUse();
     
@@ -557,7 +585,7 @@ export class Game {
         this.localPlayer.update(dt);
         this.handlePlayerCollision(this.localPlayer);
         
-        // 봇 AI/투사체/자기장은 계속 업데이트
+        // 봇 AI/투사체/수류탄/자기장은 계속 업데이트
         this.updateBotAIs(dt);
         for (const player of this.players.values()) {
           player.update(dt);
@@ -566,12 +594,14 @@ export class Game {
           }
         }
         this.updateProjectiles(dt);
+        this.updateGrenades(dt);
+        this.updateEffects();
         this.zone.update();
         this.applyZoneDamage(dt);
         return;
       }
     }
-    
+
     // 재장전 업데이트
     this.updateReload();
     
@@ -618,8 +648,8 @@ export class Game {
     // 이동 적용
     this.localPlayer.setMovement(moveX, moveY);
 
-    // 문 상호작용
-    this.handleDoorInteraction(input);
+    // 상호작용 (아이템 줍기 / 문)
+    this.handleInteraction(input);
 
     // 발사 처리 (재장전 중이면 handleFiring 내부에서 무시)
     this.handleFiring(input.mouseDown);
@@ -642,10 +672,16 @@ export class Game {
     
     // 투사체 업데이트
     this.updateProjectiles(dt);
-    
+
+    // 투척 수류탄 업데이트
+    this.updateGrenades(dt);
+
+    // 이펙트 정리
+    this.updateEffects();
+
     // 자기장 업데이트
     this.zone.update();
-    
+
     // 자기장 밖 데미지 적용
     this.applyZoneDamage(dt);
   }
@@ -758,15 +794,177 @@ export class Game {
     return count;
   }
 
-  /** 문 상호작용 처리 */
-  private handleDoorInteraction(input: InputState): void {
+  /** 상호작용 처리 (E키: 바닥 아이템 줍기 > 문 열기/닫기) */
+  private handleInteraction(input: InputState): void {
     if (!input.interactPressed) return;
+
+    // 1순위: 가장 가까운 바닥 아이템 줍기
+    const nearestItem = this.getNearestGroundItem();
+    if (nearestItem) {
+      this.pickupItem(nearestItem);
+      return;
+    }
+
+    // 2순위: 문 열기/닫기
     const door = this.tileMap.getNearbyDoor(this.localPlayer.x, this.localPlayer.y, 48);
     if (door) this.tileMap.toggleDoor(door.gridX, door.gridY);
   }
 
+  /** 가장 가까운 바닥 아이템 찾기 */
+  private getNearestGroundItem(): GroundItem | null {
+    const px = this.localPlayer.x;
+    const py = this.localPlayer.y;
+    const radius = ITEM_SPAWN_CONFIG.pickupRadius;
+    let best: GroundItem | null = null;
+    let bestDist = radius * radius;
+
+    for (const item of this.groundItems) {
+      if (!item.isActive) continue;
+      const dx = item.x - px;
+      const dy = item.y - py;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestDist) {
+        bestDist = d2;
+        best = item;
+      }
+    }
+    return best;
+  }
+
+  /** 바닥 아이템 줍기 */
+  private pickupItem(item: GroundItem): void {
+    switch (item.kind) {
+      case 'weapon': {
+        const weapon = WEAPONS[item.itemId];
+        if (!weapon) break;
+
+        if (weapon.slot === 'primary') {
+          // 슬롯 0,1 중 빈 곳에 배치
+          if (this.weaponSlots[0] === null) {
+            this.equipWeapon(0, weapon);
+            item.isActive = false;
+          } else if (this.weaponSlots[1] === null) {
+            this.equipWeapon(1, weapon);
+            item.isActive = false;
+          } else {
+            // 둘 다 차있으면 현재 무기와 스왑 (무기 슬롯 선택 중일 때)
+            const swapIdx = this.currentSlotIndex < 2 ? this.currentSlotIndex : 0;
+            this.dropWeaponToGround(swapIdx, item.x, item.y);
+            this.equipWeapon(swapIdx, weapon);
+            item.isActive = false;
+          }
+        } else {
+          // secondary → 슬롯 2
+          if (this.weaponSlots[2] === null) {
+            this.equipWeapon(2, weapon);
+            item.isActive = false;
+          } else {
+            // 스왑
+            this.dropWeaponToGround(2, item.x, item.y);
+            this.equipWeapon(2, weapon);
+            item.isActive = false;
+          }
+        }
+        break;
+      }
+
+      case 'ammo': {
+        const current = this.ammoReserve.get(item.itemId) ?? 0;
+        this.ammoReserve.set(item.itemId, current + item.quantity);
+        item.isActive = false;
+        break;
+      }
+
+      case 'healing': {
+        const def = USABLE_ITEMS[item.itemId];
+        if (!def) break;
+
+        // 같은 종류 아이템이 있는 슬롯 → 스택
+        for (let i = 0; i < 2; i++) {
+          if (this.itemSlots[i]?.id === item.itemId) {
+            if (this.itemCounts[i] < def.maxStack) {
+              this.itemCounts[i] = Math.min(def.maxStack, this.itemCounts[i] + item.quantity);
+              item.isActive = false;
+              return;
+            }
+          }
+        }
+        // 빈 슬롯에 배치
+        for (let i = 0; i < 2; i++) {
+          if (this.itemSlots[i] === null || this.itemCounts[i] <= 0) {
+            this.itemSlots[i] = def;
+            this.itemCounts[i] = Math.min(def.maxStack, item.quantity);
+            item.isActive = false;
+            return;
+          }
+        }
+        break; // 슬롯 꽉 참
+      }
+
+      case 'throwable': {
+        const def = THROWABLES[item.itemId];
+        if (!def) break;
+
+        if (this.throwableSlot && this.throwableSlot.id === item.itemId) {
+          // 같은 종류 → 스택
+          if (this.throwableCount < def.maxStack) {
+            this.throwableCount = Math.min(def.maxStack, this.throwableCount + item.quantity);
+            item.isActive = false;
+          }
+        } else if (!this.throwableSlot || this.throwableCount <= 0) {
+          // 빈 슬롯
+          this.throwableSlot = def;
+          this.throwableCount = Math.min(def.maxStack, item.quantity);
+          item.isActive = false;
+        }
+        break;
+      }
+    }
+  }
+
+  /** 무기 장착 (슬롯에 배치 + 탄창 채우기) */
+  private equipWeapon(slotIndex: number, weapon: WeaponDef): void {
+    this.weaponSlots[slotIndex] = weapon;
+    this.ammoInMagazine[slotIndex] = weapon.magazineSize;
+    this.currentFireModeIndex[slotIndex] = 0;
+
+    // 자동으로 해당 슬롯 선택
+    this.currentSlotIndex = slotIndex;
+    this.lastFireTime = 0;
+    this.burstShotsRemaining = 0;
+    if (this.isReloading) this.cancelReload();
+  }
+
+  /** 무기를 바닥에 드랍 */
+  private dropWeaponToGround(slotIndex: number, x: number, y: number): void {
+    const weapon = this.weaponSlots[slotIndex];
+    if (!weapon) return;
+
+    this.groundItems.push({
+      id: `drop-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      x,
+      y,
+      kind: 'weapon',
+      itemId: weapon.id,
+      quantity: 1,
+      isActive: true,
+    });
+
+    this.weaponSlots[slotIndex] = null;
+    this.ammoInMagazine[slotIndex] = 0;
+  }
+
   /** 발사 처리 */
   private handleFiring(mouseDown: boolean): void {
+    // 투척 슬롯이면 투척 처리
+    if (this.currentSlotIndex === 5) {
+      if (mouseDown && !this.wasMouseDown) {
+        this.throwGrenade();
+      }
+      this.wasMouseDown = mouseDown;
+      return;
+    }
+
     // 재장전 중이면 발사 불가 (버스트 진행 중인 경우도 중단)
     if (this.isReloading) {
       this.burstShotsRemaining = 0;
@@ -894,6 +1092,228 @@ export class Game {
       );
       
       this.projectiles.push(projectile);
+    }
+  }
+
+  /** 투척 */
+  private throwGrenade(): void {
+    if (!this.throwableSlot || this.throwableCount <= 0) return;
+
+    const player = this.localPlayer;
+    const muzzleOffset = PLAYER_CONFIG.radius + 10;
+    const startX = player.x + Math.cos(player.rotation) * muzzleOffset;
+    const startY = player.y + Math.sin(player.rotation) * muzzleOffset;
+
+    const grenade = new ThrownGrenade(
+      generateGrenadeId(),
+      player.id,
+      this.throwableSlot,
+      startX,
+      startY,
+      player.rotation
+    );
+    this.thrownGrenades.push(grenade);
+
+    this.throwableCount--;
+    if (this.throwableCount <= 0) {
+      this.throwableSlot = null;
+      // 자동으로 이전 무기 슬롯으로 전환
+      for (let i = 0; i < 3; i++) {
+        if (this.weaponSlots[i] !== null) {
+          this.currentSlotIndex = i;
+          return;
+        }
+      }
+      this.currentSlotIndex = 0;
+    }
+  }
+
+  /** 투척 수류탄 업데이트 */
+  private updateGrenades(dt: number): void {
+    for (let i = this.thrownGrenades.length - 1; i >= 0; i--) {
+      const g = this.thrownGrenades[i];
+      const prevX = g.x;
+      const prevY = g.y;
+
+      g.update(dt);
+
+      // 벽 충돌 → 정지
+      if (!this.tileMap.isWalkable(g.x, g.y)) {
+        g.x = prevX;
+        g.y = prevY;
+        g.stop();
+      }
+
+      // 폭발 체크
+      if (g.shouldExplode()) {
+        this.explodeGrenade(g);
+        this.thrownGrenades.splice(i, 1);
+      }
+    }
+  }
+
+  /** 수류탄 폭발 처리 */
+  private explodeGrenade(g: ThrownGrenade): void {
+    const def = g.def;
+    const now = performance.now();
+
+    if (def.type === ThrowableType.GRENADE) {
+      // 폭발 이펙트
+      this.explosionEffects.push({
+        x: g.x,
+        y: g.y,
+        radius: def.explosionRadius,
+        time: now,
+      });
+
+      // 반경 내 플레이어에 거리 기반 데미지
+      for (const player of this.players.values()) {
+        if (!player.isAlive) continue;
+        const dx = player.x - g.x;
+        const dy = player.y - g.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < def.explosionRadius) {
+          const ratio = 1 - dist / def.explosionRadius;
+          const damage = Math.floor(def.damage * ratio);
+          if (damage > 0) {
+            const wasAlive = player.isAlive;
+            player.takeDamage(damage);
+
+            this.damageNumbers.push({
+              x: player.x,
+              y: player.y - PLAYER_CONFIG.radius - 10,
+              damage,
+              time: now,
+            });
+
+            if (wasAlive && !player.isAlive) {
+              const killer = this.players.get(g.ownerId);
+              this.killLogs.push({
+                killer: killer ? killer.name : 'Unknown',
+                victim: player.name,
+                weapon: def.name,
+                time: now,
+              });
+            }
+          }
+        }
+      }
+    } else if (def.type === ThrowableType.SMOKE_GRENADE) {
+      // 연막 구역 추가 (8초 지속)
+      this.smokeZones.push({
+        x: g.x,
+        y: g.y,
+        radius: def.explosionRadius,
+        endTime: now + 8000,
+      });
+    }
+  }
+
+  /** 연막/폭발 이펙트 정리 */
+  private updateEffects(): void {
+    const now = performance.now();
+    // 연막 만료 제거
+    for (let i = this.smokeZones.length - 1; i >= 0; i--) {
+      if (now >= this.smokeZones[i].endTime) {
+        this.smokeZones.splice(i, 1);
+      }
+    }
+    // 폭발 이펙트 제거 (300ms 후)
+    for (let i = this.explosionEffects.length - 1; i >= 0; i--) {
+      if (now - this.explosionEffects[i].time > 300) {
+        this.explosionEffects.splice(i, 1);
+      }
+    }
+  }
+
+  /** 바닥 아이템 생성 (맵 FLOOR 타일 기반) */
+  private generateGroundItems(): void {
+    const map = this.tileMap.getMap();
+    const tileSize = map.tileSize;
+    let itemIdCounter = 0;
+
+    for (let y = 0; y < map.height; y++) {
+      for (let x = 0; x < map.width; x++) {
+        if (map.tiles[y][x] !== TileType.FLOOR) continue;
+
+        // 인접 WALL 체크 → 실내 여부
+        const hasAdjacentWall = this.hasAdjacentTile(map, x, y, TileType.WALL);
+        const chance = hasAdjacentWall
+          ? ITEM_SPAWN_CONFIG.spawnChance
+          : ITEM_SPAWN_CONFIG.spawnChance * ITEM_SPAWN_CONFIG.outdoorMultiplier;
+
+        if (Math.random() > chance) continue;
+
+        // 가중치 기반 종류 선택
+        const kind = this.pickWeightedKind();
+        const worldX = x * tileSize + tileSize / 2;
+        const worldY = y * tileSize + tileSize / 2;
+
+        const groundItem = this.createGroundItem(
+          `item-${itemIdCounter++}`,
+          worldX,
+          worldY,
+          kind
+        );
+        if (groundItem) {
+          this.groundItems.push(groundItem);
+        }
+      }
+    }
+  }
+
+  /** 인접 타일 존재 여부 */
+  private hasAdjacentTile(
+    map: { width: number; height: number; tiles: number[][] },
+    x: number,
+    y: number,
+    tileType: number
+  ): boolean {
+    const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+    for (const [dx, dy] of dirs) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx >= 0 && nx < map.width && ny >= 0 && ny < map.height) {
+        if (map.tiles[ny][nx] === tileType) return true;
+      }
+    }
+    return false;
+  }
+
+  /** 가중치 기반 아이템 종류 선택 */
+  private pickWeightedKind(): GroundItemKind {
+    const total = SPAWN_WEIGHTS.weapon + SPAWN_WEIGHTS.ammo + SPAWN_WEIGHTS.healing + SPAWN_WEIGHTS.throwable;
+    const r = Math.random() * total;
+    if (r < SPAWN_WEIGHTS.weapon) return 'weapon';
+    if (r < SPAWN_WEIGHTS.weapon + SPAWN_WEIGHTS.ammo) return 'ammo';
+    if (r < SPAWN_WEIGHTS.weapon + SPAWN_WEIGHTS.ammo + SPAWN_WEIGHTS.healing) return 'healing';
+    return 'throwable';
+  }
+
+  /** 바닥 아이템 생성 */
+  private createGroundItem(id: string, x: number, y: number, kind: GroundItemKind): GroundItem | null {
+    switch (kind) {
+      case 'weapon': {
+        const weaponId = SPAWN_WEAPON_POOL[Math.floor(Math.random() * SPAWN_WEAPON_POOL.length)];
+        return { id, x, y, kind, itemId: weaponId, quantity: 1, isActive: true };
+      }
+      case 'ammo': {
+        const ammoTypes = Object.keys(SPAWN_AMMO_RANGES);
+        const ammoType = ammoTypes[Math.floor(Math.random() * ammoTypes.length)];
+        const [min, max] = SPAWN_AMMO_RANGES[ammoType];
+        const qty = min + Math.floor(Math.random() * (max - min + 1));
+        return { id, x, y, kind, itemId: ammoType, quantity: qty, isActive: true };
+      }
+      case 'healing': {
+        const items = Object.keys(USABLE_ITEMS);
+        const itemId = items[Math.floor(Math.random() * items.length)];
+        return { id, x, y, kind, itemId, quantity: 1, isActive: true };
+      }
+      case 'throwable': {
+        const throwables = Object.keys(THROWABLES);
+        const throwableId = throwables[Math.floor(Math.random() * throwables.length)];
+        return { id, x, y, kind, itemId: throwableId, quantity: 1, isActive: true };
+      }
     }
   }
 
@@ -1078,16 +1498,24 @@ export class Game {
       (gx, gy) => this.tileMap.getDoorOpacity(gx, gy)
     );
 
-    // 문 상호작용 프롬프트
+    // 바닥 아이템 그리기
+    this.renderer.drawGroundItems(this.groundItems, this.camera, viewW, viewH);
+
+    // 상호작용 프롬프트 (아이템 줍기 > 문)
     if (this.localPlayer.isAlive) {
-      const nearbyDoor = this.tileMap.getNearbyDoor(this.localPlayer.x, this.localPlayer.y, 48);
-      if (nearbyDoor) {
-        this.renderer.drawDoorPrompt(
-          nearbyDoor.gridX,
-          nearbyDoor.gridY,
-          map.tileSize,
-          this.tileMap.isDoorOpen(nearbyDoor.gridX, nearbyDoor.gridY)
-        );
+      const nearestItem = this.getNearestGroundItem();
+      if (nearestItem) {
+        this.renderer.drawPickupPrompt(nearestItem);
+      } else {
+        const nearbyDoor = this.tileMap.getNearbyDoor(this.localPlayer.x, this.localPlayer.y, 48);
+        if (nearbyDoor) {
+          this.renderer.drawDoorPrompt(
+            nearbyDoor.gridX,
+            nearbyDoor.gridY,
+            map.tileSize,
+            this.tileMap.isDoorOpen(nearbyDoor.gridX, nearbyDoor.gridY)
+          );
+        }
       }
     }
 
@@ -1106,7 +1534,18 @@ export class Game {
     for (const proj of this.projectiles) {
       this.renderer.drawProjectile(proj, alpha);
     }
-    
+
+    // 투척 수류탄 그리기
+    for (const g of this.thrownGrenades) {
+      this.renderer.drawThrownGrenade(g, alpha);
+    }
+
+    // 폭발 이펙트 그리기
+    this.renderer.drawExplosions(this.explosionEffects);
+
+    // 연막 구역 그리기
+    this.renderer.drawSmokeZones(this.smokeZones);
+
     // 시야(FOV) 계산 (플레이어 가시성 체크용)
     const playerPos = this.localPlayer.getInterpolatedPosition(alpha);
     const playerRot = this.localPlayer.getInterpolatedRotation(alpha);
@@ -1163,31 +1602,42 @@ export class Game {
     // 카메라 변환 해제
     this.renderer.endCamera();
 
-    // HUD: 무기/아이템 슬롯 (하단 중앙)
+    // HUD: 무기/아이템/투척 슬롯 (하단 중앙, 6슬롯)
     this.renderer.drawWeaponSlots(
       this.weaponSlots,
       this.itemSlots,
       this.itemCounts,
+      this.throwableSlot,
+      this.throwableCount,
       this.currentSlotIndex,
       viewW / 2,
       viewH - 80
     );
 
-    // HUD: 우측 하단 무기 상태
-    const currentWeapon = this.getCurrentWeapon();
-    const currentAmmo = this.ammoInMagazine[this.currentSlotIndex];
-    const reserveAmmo = currentWeapon
-      ? (this.ammoReserve.get(currentWeapon.ammoType) ?? 0)
-      : 0;
-    const currentFireMode = this.getCurrentFireMode();
-    this.renderer.drawWeaponStatus(
-      currentWeapon,
-      currentAmmo,
-      reserveAmmo,
-      viewW,
-      viewH,
-      currentFireMode
-    );
+    // HUD: 우측 하단 무기/투척 상태
+    if (this.currentSlotIndex === 5 && this.throwableSlot) {
+      this.renderer.drawThrowableStatus(
+        this.throwableSlot,
+        this.throwableCount,
+        viewW,
+        viewH
+      );
+    } else {
+      const currentWeapon = this.getCurrentWeapon();
+      const currentAmmo = this.currentSlotIndex < 3 ? this.ammoInMagazine[this.currentSlotIndex] : 0;
+      const reserveAmmo = currentWeapon
+        ? (this.ammoReserve.get(currentWeapon.ammoType) ?? 0)
+        : 0;
+      const currentFireMode = this.getCurrentFireMode();
+      this.renderer.drawWeaponStatus(
+        currentWeapon,
+        currentAmmo,
+        reserveAmmo,
+        viewW,
+        viewH,
+        currentFireMode
+      );
+    }
 
     // HUD: 좌하단 체력/회복 게이지
     this.renderer.drawHealthHUD(
@@ -1342,6 +1792,41 @@ export class Game {
     );
     
     // 벽에 먼저 도달하면 시야에서 안 보임
-    return result.distance >= distance - 10; // 약간의 여유
+    if (result.distance < distance - 10) return false;
+
+    // 연막 차단 체크 — 시선이 연막 구역을 통과하면 안 보임
+    for (const smoke of this.smokeZones) {
+      if (this.lineIntersectsCircle(playerX, playerY, targetX, targetY, smoke.x, smoke.y, smoke.radius)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /** 선분-원 교차 체크 */
+  private lineIntersectsCircle(
+    x1: number, y1: number,
+    x2: number, y2: number,
+    cx: number, cy: number,
+    r: number
+  ): boolean {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const fx = x1 - cx;
+    const fy = y1 - cy;
+
+    const a = dx * dx + dy * dy;
+    const b = 2 * (fx * dx + fy * dy);
+    const c = fx * fx + fy * fy - r * r;
+
+    let discriminant = b * b - 4 * a * c;
+    if (discriminant < 0) return false;
+
+    discriminant = Math.sqrt(discriminant);
+    const t1 = (-b - discriminant) / (2 * a);
+    const t2 = (-b + discriminant) / (2 * a);
+
+    return (t1 >= 0 && t1 <= 1) || (t2 >= 0 && t2 <= 1) || (t1 < 0 && t2 > 1);
   }
 }

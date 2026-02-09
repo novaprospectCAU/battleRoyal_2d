@@ -128,12 +128,12 @@ export class InputManager {
 
   private handleKeyDown(e: KeyboardEvent): void {
     // 브라우저 기본 동작 방지 (WASD, 화살표, 스페이스, 숫자, R, F)
-    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', '1', '2', '3', '4', '5', 'r', 'f', 'e', 'b'].includes(e.key.toLowerCase())) {
+    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', '1', '2', '3', '4', '5', '6', 'r', 'f', 'e', 'b'].includes(e.key.toLowerCase())) {
       e.preventDefault();
     }
-    
-    // 숫자 키 처리 (1-5)
-    if (e.key >= '1' && e.key <= '5') {
+
+    // 숫자 키 처리 (1-6)
+    if (e.key >= '1' && e.key <= '6') {
       this.weaponSlotKey = parseInt(e.key);
     }
     

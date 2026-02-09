@@ -51,6 +51,46 @@ export const USABLE_ITEMS: Record<string, UsableItemDef> = {
   },
 };
 
+// === 투척 무기 ===
+
+export enum ThrowableType {
+  GRENADE = 'grenade',
+  SMOKE_GRENADE = 'smoke_grenade',
+}
+
+export interface ThrowableDef {
+  id: string;
+  name: string;
+  type: ThrowableType;
+  /** 수류탄 데미지 */
+  damage: number;
+  /** 폭발 반경 (px) */
+  explosionRadius: number;
+  /** 투사체 속도 (px/s) */
+  projectileSpeed: number;
+  /** 퓨즈 시간 (ms, 투척 후 폭발까지) */
+  fuseTime: number;
+  /** 최대 스택 */
+  maxStack: number;
+  /** 아이콘 색상 */
+  color: string;
+}
+
+// === 바닥 아이템 ===
+
+export type GroundItemKind = 'weapon' | 'ammo' | 'healing' | 'throwable';
+
+export interface GroundItem {
+  id: string;
+  x: number;
+  y: number;
+  kind: GroundItemKind;
+  /** weapon ID / ammo type / item ID / throwable ID */
+  itemId: string;
+  quantity: number;
+  isActive: boolean;
+}
+
 /** 지속 회복 설정 */
 export const HEAL_OVER_TIME_CONFIG = {
   /** 최대 게이지 */
