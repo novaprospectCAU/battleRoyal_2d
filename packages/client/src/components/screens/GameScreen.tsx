@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Game } from '@/game/core/Game';
 import styles from './GameScreen.module.css';
 
@@ -9,7 +9,6 @@ interface GameScreenProps {
 export function GameScreen({ onBack }: GameScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
-  const [fps, setFps] = useState(0);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -19,17 +18,11 @@ export function GameScreen({ onBack }: GameScreenProps) {
     const game = new Game(canvas);
     gameRef.current = game;
 
-    // FPS 표시 업데이트
-    const fpsInterval = setInterval(() => {
-      setFps(game.getFps());
-    }, 500);
-
     // 게임 시작
     game.start();
 
     // 클린업
     return () => {
-      clearInterval(fpsInterval);
       game.destroy();
       gameRef.current = null;
     };
@@ -64,12 +57,6 @@ export function GameScreen({ onBack }: GameScreenProps) {
           >
             ← 나가기
           </button>
-        </div>
-        
-        <div className={styles.topRight}>
-          <div className={styles.fpsCounter}>
-            FPS: {fps}
-          </div>
         </div>
         
         <div className={styles.bottomCenter}>

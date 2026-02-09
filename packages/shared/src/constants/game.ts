@@ -54,7 +54,7 @@ export const FOV_CONFIG = {
   /** 시야 거리 (픽셀) */
   viewDistance: 500,
   /** 레이 개수 (시야 해상도) */
-  rayCount: 120,
+  rayCount: 80,
   /** 시야 밖 영역 어둡기 (0~1) */
   shadowOpacity: 0.5,
 } as const;

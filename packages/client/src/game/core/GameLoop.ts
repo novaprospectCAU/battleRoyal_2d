@@ -56,11 +56,11 @@ export class GameLoop {
   /** 메인 루프 */
   private loop = (currentTime: number): void => {
     if (!this.running) return;
-    
+
     const deltaTime = currentTime - this.lastTime;
     this.lastTime = currentTime;
     this.accumulator += deltaTime;
-    
+
     // FPS 계산
     this.frameCount++;
     if (currentTime - this.lastFpsTime >= 1000) {
@@ -68,17 +68,22 @@ export class GameLoop {
       this.frameCount = 0;
       this.lastFpsTime = currentTime;
     }
-    
+
+    // Spiral of death 방지: accumulator 최대 200ms (4틱)로 제한
+    if (this.accumulator > TICK_INTERVAL * 4) {
+      this.accumulator = TICK_INTERVAL * 4;
+    }
+
     // 고정 시간 업데이트 (20 Hz)
     while (this.accumulator >= TICK_INTERVAL) {
       this.updateFn(TICK_INTERVAL);
       this.accumulator -= TICK_INTERVAL;
     }
-    
-    // 보간된 렌더링 (60 fps)
+
+    // 보간된 렌더링
     const alpha = this.accumulator / TICK_INTERVAL;
     this.renderFn(alpha);
-    
+
     // 다음 프레임 예약
     this.frameId = requestAnimationFrame(this.loop);
   };

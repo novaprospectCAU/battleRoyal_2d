@@ -271,7 +271,7 @@ export class TileMap {
     angle: number,
     maxDistance: number
   ): { x: number; y: number; distance: number } {
-    const stepSize = 4; // 4px 간격으로 체크
+    const stepSize = 8; // 8px 간격으로 체크 (성능 최적화)
     const dx = Math.cos(angle);
     const dy = Math.sin(angle);
     
