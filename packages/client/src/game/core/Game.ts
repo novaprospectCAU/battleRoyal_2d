@@ -1268,9 +1268,61 @@ export class Game {
         );
         if (groundItem) {
           this.groundItems.push(groundItem);
+
+          // 무기 옆에 해당 탄약 추가 배치 (1~2개)
+          if (kind === 'weapon') {
+            const weapon = WEAPONS[groundItem.itemId];
+            if (weapon) {
+              const ammoCount = 1 + Math.floor(Math.random() * 2); // 1~2개
+              for (let a = 0; a < ammoCount; a++) {
+                const ammoPos = this.findNearbyFloor(map, x, y);
+                if (ammoPos) {
+                  const ax = ammoPos.x * tileSize + tileSize / 2;
+                  const ay = ammoPos.y * tileSize + tileSize / 2;
+                  const range = SPAWN_AMMO_RANGES[weapon.ammoType];
+                  const qty = range
+                    ? range[0] + Math.floor(Math.random() * (range[1] - range[0] + 1))
+                    : 15;
+                  this.groundItems.push({
+                    id: `item-${itemIdCounter++}`,
+                    x: ax,
+                    y: ay,
+                    kind: 'ammo',
+                    itemId: weapon.ammoType,
+                    quantity: qty,
+                    isActive: true,
+                  });
+                }
+              }
+            }
+          }
         }
       }
     }
+  }
+
+  /** 주변 FLOOR 타일 찾기 (랜덤 인접) */
+  private findNearbyFloor(
+    map: { width: number; height: number; tiles: number[][] },
+    cx: number,
+    cy: number
+  ): { x: number; y: number } | null {
+    const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1]];
+    // 셔플
+    for (let i = dirs.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
+    }
+    for (const [dx, dy] of dirs) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (nx > 0 && nx < map.width - 1 && ny > 0 && ny < map.height - 1) {
+        if (map.tiles[ny][nx] === TileType.FLOOR) {
+          return { x: nx, y: ny };
+        }
+      }
+    }
+    return null;
   }
 
   /** 인접 타일 존재 여부 */
