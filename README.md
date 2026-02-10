@@ -2,6 +2,8 @@
 
 React 기반 2D 쿼터뷰 배틀로얄 웹게임 (최대 32명 실시간 멀티플레이)
 
+<img width="763" height="439" alt="image" src="https://github.com/user-attachments/assets/23e07d68-1aa2-49aa-957d-572da66b5765" />
+
 ## 🚀 빠른 시작
 
 ### 요구사항
