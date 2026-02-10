@@ -171,7 +171,7 @@ export class Game {
     this.generateGroundItems();
 
     // 테스트용 AI 봇 생성
-    this.spawnTestEnemies(5);
+    this.spawnTestEnemies(19);
   }
 
   /** 테스트용 AI 봇 생성 */
@@ -1269,11 +1269,11 @@ export class Game {
         if (groundItem) {
           this.groundItems.push(groundItem);
 
-          // 무기 옆에 해당 탄약 추가 배치 (1~2개)
+          // 무기 옆에 해당 탄약 추가 배치 (2~4개)
           if (kind === 'weapon') {
             const weapon = WEAPONS[groundItem.itemId];
             if (weapon) {
-              const ammoCount = 1 + Math.floor(Math.random() * 2); // 1~2개
+              const ammoCount = 2 + Math.floor(Math.random() * 3); // 2~4개
               for (let a = 0; a < ammoCount; a++) {
                 const ammoPos = this.findNearbyFloor(map, x, y);
                 if (ammoPos) {
@@ -1325,6 +1325,20 @@ export class Game {
     return null;
   }
 
+  /** 근처 바닥 무기의 탄약 타입 반환 */
+  private findNearbyWeaponAmmoType(x: number, y: number, radius: number): string | null {
+    for (const item of this.groundItems) {
+      if (!item.isActive || item.kind !== 'weapon') continue;
+      const dx = item.x - x;
+      const dy = item.y - y;
+      if (dx * dx + dy * dy <= radius * radius) {
+        const weapon = WEAPONS[item.itemId];
+        if (weapon) return weapon.ammoType;
+      }
+    }
+    return null;
+  }
+
   /** 인접 타일 존재 여부 */
   private hasAdjacentTile(
     map: { width: number; height: number; tiles: number[][] },
@@ -1361,9 +1375,17 @@ export class Game {
         return { id, x, y, kind, itemId: weaponId, quantity: 1, isActive: true };
       }
       case 'ammo': {
-        const ammoTypes = Object.keys(SPAWN_AMMO_RANGES);
-        const ammoType = ammoTypes[Math.floor(Math.random() * ammoTypes.length)];
-        const [min, max] = SPAWN_AMMO_RANGES[ammoType];
+        let ammoType: string;
+        // 근처(96px) 무기가 있으면 70% 확률로 해당 무기 탄약 배치
+        const nearbyWeapon = this.findNearbyWeaponAmmoType(x, y, 96);
+        if (nearbyWeapon && Math.random() < 0.7) {
+          ammoType = nearbyWeapon;
+        } else {
+          const ammoTypes = Object.keys(SPAWN_AMMO_RANGES);
+          ammoType = ammoTypes[Math.floor(Math.random() * ammoTypes.length)];
+        }
+        const range = SPAWN_AMMO_RANGES[ammoType];
+        const [min, max] = range ?? [10, 20];
         const qty = min + Math.floor(Math.random() * (max - min + 1));
         return { id, x, y, kind, itemId: ammoType, quantity: qty, isActive: true };
       }

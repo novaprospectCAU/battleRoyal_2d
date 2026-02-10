@@ -14,18 +14,18 @@ export interface ZonePhase {
   damagePerSecond: number;
 }
 
-/** 자기장 페이즈 데이터 */
+/** 자기장 페이즈 데이터 (128×128 대형 맵 기준) */
 export const ZONE_PHASES: ZonePhase[] = [
-  { phase: 0, waitTime: 18000, shrinkTime: 5000, sizeRatio: 0.70, damagePerSecond: 0.5 },
-  { phase: 1, waitTime: 14000, shrinkTime: 4000, sizeRatio: 0.45, damagePerSecond: 1.1 },
-  { phase: 2, waitTime: 10000, shrinkTime: 3500, sizeRatio: 0.30, damagePerSecond: 2.0 },
-  { phase: 3, waitTime: 7000,  shrinkTime: 3000, sizeRatio: 0.18, damagePerSecond: 3.4 },
-  { phase: 4, waitTime: 5000,  shrinkTime: 2500, sizeRatio: 0.10, damagePerSecond: 5.2 },
-  { phase: 5, waitTime: 4000,  shrinkTime: 2000, sizeRatio: 0.06, damagePerSecond: 7.9 },
-  { phase: 6, waitTime: 3000,  shrinkTime: 1500, sizeRatio: 0.04, damagePerSecond: 10.8 },
-  { phase: 7, waitTime: 2500,  shrinkTime: 1000, sizeRatio: 0.03, damagePerSecond: 14.2 },
-  { phase: 8, waitTime: 2000,  shrinkTime: 600,  sizeRatio: 0.02, damagePerSecond: 18.4 },
-  { phase: 9, waitTime: 1500,  shrinkTime: 400,  sizeRatio: 0.01, damagePerSecond: 25.0 },
+  { phase: 0, waitTime: 40000, shrinkTime: 12000, sizeRatio: 0.75, damagePerSecond: 0.5 },
+  { phase: 1, waitTime: 30000, shrinkTime: 10000, sizeRatio: 0.55, damagePerSecond: 1.0 },
+  { phase: 2, waitTime: 25000, shrinkTime: 8000,  sizeRatio: 0.38, damagePerSecond: 1.8 },
+  { phase: 3, waitTime: 20000, shrinkTime: 7000,  sizeRatio: 0.25, damagePerSecond: 2.8 },
+  { phase: 4, waitTime: 16000, shrinkTime: 6000,  sizeRatio: 0.16, damagePerSecond: 4.0 },
+  { phase: 5, waitTime: 12000, shrinkTime: 5000,  sizeRatio: 0.10, damagePerSecond: 6.0 },
+  { phase: 6, waitTime: 10000, shrinkTime: 4000,  sizeRatio: 0.06, damagePerSecond: 8.5 },
+  { phase: 7, waitTime: 8000,  shrinkTime: 3000,  sizeRatio: 0.04, damagePerSecond: 12.0 },
+  { phase: 8, waitTime: 6000,  shrinkTime: 2000,  sizeRatio: 0.02, damagePerSecond: 16.0 },
+  { phase: 9, waitTime: 4000,  shrinkTime: 1500,  sizeRatio: 0.01, damagePerSecond: 22.0 },
 ];
 
 /** 자기장 설정 */
