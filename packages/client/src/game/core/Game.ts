@@ -13,7 +13,6 @@ import {
   RENDER_CONFIG,
   WEAPONS,
   PROJECTILE_CONFIG,
-  BOT_WEAPON_POOLS,
   BotDifficulty,
   USABLE_ITEMS,
   HEAL_OVER_TIME_CONFIG,
@@ -197,12 +196,8 @@ export class Game {
       // 난이도 선택
       const difficulty = difficulties[i % difficulties.length];
 
-      // 난이도별 무기 풀에서 랜덤 배정
-      const weaponPool = BOT_WEAPON_POOLS[difficulty] ?? BOT_WEAPON_POOLS['normal'];
-      const weaponId = weaponPool[Math.floor(Math.random() * weaponPool.length)];
-
-      // AI 생성 및 연결
-      const botAI = new BotAI(enemy, difficulty, weaponId);
+      // AI 생성 (빈 손 시작 — 아이템은 바닥에서 주워야 함)
+      const botAI = new BotAI(enemy, difficulty);
 
       this.players.set(enemy.id, enemy);
       this.botAIs.set(enemy.id, botAI);
@@ -708,7 +703,8 @@ export class Game {
         dt,
         this.tileMap,
         this.players,
-        this.localPlayer
+        this.localPlayer,
+        this.groundItems
       );
       
       // 봇 사격 처리
@@ -1247,6 +1243,9 @@ export class Game {
       for (let x = 0; x < map.width; x++) {
         if (map.tiles[y][x] !== TileType.FLOOR) continue;
 
+        // 문 앞에는 아이템 배치 금지
+        if (this.hasAdjacentTile(map, x, y, TileType.DOOR)) continue;
+
         // 인접 WALL 체크 → 실내 여부
         const hasAdjacentWall = this.hasAdjacentTile(map, x, y, TileType.WALL);
         const chance = hasAdjacentWall
@@ -1276,7 +1275,7 @@ export class Game {
               const ammoCount = 2 + Math.floor(Math.random() * 3); // 2~4개
               for (let a = 0; a < ammoCount; a++) {
                 const ammoPos = this.findNearbyFloor(map, x, y);
-                if (ammoPos) {
+                if (ammoPos && !this.hasAdjacentTile(map, ammoPos.x, ammoPos.y, TileType.DOOR)) {
                   const ax = ammoPos.x * tileSize + tileSize / 2;
                   const ay = ammoPos.y * tileSize + tileSize / 2;
                   const range = SPAWN_AMMO_RANGES[weapon.ammoType];

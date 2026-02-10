@@ -14,6 +14,10 @@ export enum BotState {
   FLEE = 'flee',
   /** 자기장 회피 (안전 구역으로 이동) */
   ZONE_FLEE = 'zone_flee',
+  /** 아이템 루팅 (무기/탄약/치료 줍기) */
+  LOOT = 'loot',
+  /** 회복 (치료 아이템 사용 중) */
+  HEAL = 'heal',
 }
 
 /**
