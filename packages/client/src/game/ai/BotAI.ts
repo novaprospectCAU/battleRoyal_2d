@@ -6,8 +6,11 @@ import {
   PLAYER_CONFIG,
   WEAPONS,
   ITEM_SPAWN_CONFIG,
+  ARMOR_ITEMS,
+  ARMOR_TIERS,
   type WeaponDef,
   type GroundItem,
+  type Armor,
 } from '@battle-royal/shared';
 import { Player } from '../entities/Player';
 import { TileMap } from '../world/TileMap';
@@ -51,6 +54,11 @@ export class BotAI {
   private ammoInMagazine = 0;
   private ammoReserve: Map<string, number> = new Map();
   private healingItems = 0;
+
+  // 방어구
+  private helmet: Armor | null = null;
+  private vest: Armor | null = null;
+  private boots: Armor | null = null;
 
   // 재장전
   private isReloading = false;
@@ -465,6 +473,7 @@ export class BotAI {
     if (totalAmmo < this.weapon.magazineSize * 2) return true;
     const healthRatio = this.player.hp / this.player.maxHp;
     if (healthRatio < 0.7 && this.healingItems < 2) return true;
+    if (!this.helmet || !this.vest || !this.boots) return true;
     return false;
   }
 
@@ -516,6 +525,18 @@ export class BotAI {
           }
           break;
         }
+        case 'armor': {
+          const armorDef = ARMOR_ITEMS[item.itemId];
+          if (!armorDef) break;
+          const slotKey = armorDef.type as 'helmet' | 'vest' | 'boots';
+          const current = this[slotKey];
+          if (!current) {
+            priority = 60; // 빈 슬롯
+          } else if (armorDef.tier < current.tier) {
+            priority = 45; // 상위 티어
+          }
+          break;
+        }
       }
 
       if (priority <= 0) continue;
@@ -555,6 +576,25 @@ export class BotAI {
       }
       case 'healing': {
         this.healingItems = Math.min(this.healingItems + item.quantity, 3);
+        break;
+      }
+      case 'armor': {
+        const armorDef = ARMOR_ITEMS[item.itemId];
+        if (!armorDef) return;
+        const tierConfig = ARMOR_TIERS[armorDef.tier];
+        const newArmor: Armor = {
+          type: armorDef.type,
+          tier: armorDef.tier,
+          durability: tierConfig.maxDurability,
+          maxDurability: tierConfig.maxDurability,
+        };
+        const slotKey = armorDef.type as 'helmet' | 'vest' | 'boots';
+        const current = this[slotKey];
+        if (!current || armorDef.tier < current.tier) {
+          this[slotKey] = newArmor;
+          // Player 엔티티에도 동기화 (데미지 계산에 필요)
+          this.player[slotKey] = newArmor;
+        }
         break;
       }
     }

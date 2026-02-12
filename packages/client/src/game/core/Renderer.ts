@@ -9,12 +9,14 @@ import {
   WEAPONS,
   USABLE_ITEMS,
   THROWABLES,
+  ARMOR_ITEMS,
   type GameMap,
   type WeaponDef,
   type FireMode,
   type UsableItemDef,
   type ThrowableDef,
   type GroundItem,
+  type Armor,
 } from '@battle-royal/shared';
 import type { Camera } from '../world/Camera';
 import type { Player } from '../entities/Player';
@@ -273,6 +275,11 @@ export class Renderer {
     
     // 체력바
     this.drawHealthBar(pos.x, pos.y + radius + 8, player.hp, player.maxHp);
+
+    // 아머 바 (HP바 아래, 장착 시에만)
+    if (player.helmet || player.vest || player.boots) {
+      this.drawPlayerArmorBar(pos.x, pos.y + radius + 13, player);
+    }
   }
 
   /** 죽은 플레이어 그리기 */
@@ -348,6 +355,34 @@ export class Renderer {
     // 체력
     const hpColor = ratio > 0.5 ? '#4ade80' : ratio > 0.25 ? '#facc15' : '#ef4444';
     this.ctx.fillStyle = hpColor;
+    this.ctx.fillRect(x - width / 2, y, width * ratio, height);
+  }
+
+  /** 플레이어 머리 위 아머 바 (HP바 아래, 얇은 파란색 바) */
+  private drawPlayerArmorBar(x: number, y: number, player: Player): void {
+    const width = 40;
+    const height = 3;
+
+    // 전체 아머 내구도 합산
+    let totalDur = 0;
+    let totalMaxDur = 0;
+    const slots: (Armor | null)[] = [player.helmet, player.vest, player.boots];
+    for (const a of slots) {
+      if (a) {
+        totalDur += a.durability;
+        totalMaxDur += a.maxDurability;
+      }
+    }
+    if (totalMaxDur <= 0) return;
+
+    const ratio = totalDur / totalMaxDur;
+
+    // 배경
+    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    this.ctx.fillRect(x - width / 2, y, width, height);
+
+    // 아머 바 (파란색)
+    this.ctx.fillStyle = '#55aaff';
     this.ctx.fillRect(x - width / 2, y, width * ratio, height);
   }
 
@@ -685,6 +720,72 @@ export class Renderer {
     // 회복 텍스트
     this.ctx.fillStyle = '#ffffff';
     this.ctx.fillText(`HEAL`, x + 4, healY + barHeight / 2);
+  }
+
+  /** 좌하단 아머 HUD (회복 게이지 위에 3줄 얇은 바) */
+  drawArmorHUD(
+    helmet: Armor | null,
+    vest: Armor | null,
+    boots: Armor | null,
+    viewHeight: number
+  ): void {
+    // 아머가 하나도 없으면 그리지 않음
+    if (!helmet && !vest && !boots) return;
+
+    const padding = 20;
+    const barWidth = 180;
+    const barHeight = 8;
+    const gap = 3;
+    const hpBarHeight = 12;
+    const hpGap = 6;
+
+    // HP바 시작 y = viewHeight - padding - hpBarHeight
+    // 회복 바 y = HP바 위 - gap - hpBarHeight
+    // 아머 바 시작 y = 회복 바 위 - gap
+    const healBarY = viewHeight - padding - hpBarHeight - hpGap - hpBarHeight;
+    let y = healBarY - gap - barHeight;
+
+    const tierColors: Record<number, string> = {
+      1: '#66ccff', // 하늘색
+      2: '#00ccaa', // 청록색
+      3: '#ffcc00', // 금색
+    };
+
+    const labels: [string, Armor | null][] = [
+      ['방탄화', boots],
+      ['방탄복', vest],
+      ['헬멧', helmet],
+    ];
+
+    const x = padding;
+
+    for (const [label, armor] of labels) {
+      // 배경
+      this.ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+      this.ctx.fillRect(x, y, barWidth, barHeight);
+
+      if (armor && armor.durability > 0) {
+        const ratio = armor.durability / armor.maxDurability;
+        const color = tierColors[armor.tier] ?? '#66ccff';
+        this.ctx.fillStyle = color;
+        this.ctx.fillRect(x, y, barWidth * ratio, barHeight);
+      }
+
+      // 테두리
+      this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+      this.ctx.lineWidth = 1;
+      this.ctx.strokeRect(x, y, barWidth, barHeight);
+
+      // 라벨
+      this.ctx.fillStyle = '#ffffff';
+      this.ctx.font = '8px sans-serif';
+      this.ctx.textAlign = 'left';
+      this.ctx.textBaseline = 'middle';
+      const tierText = armor ? `T${armor.tier}` : '';
+      this.ctx.fillText(`${label} ${tierText}`, x + 3, y + barHeight / 2);
+
+      y -= barHeight + gap;
+    }
   }
 
   /** 재장전 인디케이터 (화면 정중앙, 희미한 원형 프로그레스) */
@@ -1202,6 +1303,19 @@ export class Renderer {
           this.ctx.arc(item.x, item.y, 6, 0, Math.PI * 2);
           this.ctx.fill();
           break;
+        case 'armor':
+          // 방패 모양 육각형 (하늘색)
+          this.ctx.fillStyle = '#55bbff';
+          this.ctx.beginPath();
+          this.ctx.moveTo(item.x, item.y - 8);
+          this.ctx.lineTo(item.x + 7, item.y - 4);
+          this.ctx.lineTo(item.x + 7, item.y + 3);
+          this.ctx.lineTo(item.x, item.y + 8);
+          this.ctx.lineTo(item.x - 7, item.y + 3);
+          this.ctx.lineTo(item.x - 7, item.y - 4);
+          this.ctx.closePath();
+          this.ctx.fill();
+          break;
       }
 
       // 아이템명 표시
@@ -1224,6 +1338,7 @@ export class Renderer {
       case 'ammo': return `${item.itemId} ×${item.quantity}`;
       case 'healing': return USABLE_ITEMS[item.itemId]?.name ?? item.itemId;
       case 'throwable': return THROWABLES[item.itemId]?.name ?? item.itemId;
+      case 'armor': return ARMOR_ITEMS[item.itemId]?.name ?? item.itemId;
     }
   }
 

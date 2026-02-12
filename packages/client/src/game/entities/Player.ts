@@ -1,4 +1,11 @@
-import { Vector2, PLAYER_CONFIG } from '@battle-royal/shared';
+import {
+  Vector2,
+  PLAYER_CONFIG,
+  ARMOR_TIERS,
+  ARMOR_DISTANCE_WEIGHTS,
+  getDistanceCategory,
+  type Armor,
+} from '@battle-royal/shared';
 
 /**
  * 플레이어 엔티티
@@ -25,7 +32,12 @@ export class Player {
   isAlive = true;
   isLocalPlayer: boolean;
   isBot = false;
-  
+
+  // 방어구
+  helmet: Armor | null = null;
+  vest: Armor | null = null;
+  boots: Armor | null = null;
+
   // 이동
   private moveX = 0;
   private moveY = 0;
@@ -121,6 +133,33 @@ export class Player {
     while (diff < -Math.PI) diff += Math.PI * 2;
     
     return this.prevRotation + diff * alpha;
+  }
+
+  /** 아머 적용 데미지 (총/수류탄용) */
+  takeDamageWithArmor(rawDamage: number, distance: number = 0): number {
+    const category = getDistanceCategory(distance);
+    let totalReduction = 0;
+
+    const slots: (Armor | null)[] = [this.helmet, this.vest, this.boots];
+    for (const armor of slots) {
+      if (!armor || armor.durability <= 0) continue;
+      const tierConfig = ARMOR_TIERS[armor.tier];
+      const weight = ARMOR_DISTANCE_WEIGHTS[armor.type][category];
+      totalReduction += tierConfig.damageReduction * weight / 3;
+
+      // 내구도 차감
+      const durDmg = rawDamage * tierConfig.durabilityDamageRate;
+      armor.durability = Math.max(0, armor.durability - durDmg);
+    }
+
+    // 파괴된 아머 제거
+    if (this.helmet && this.helmet.durability <= 0) this.helmet = null;
+    if (this.vest && this.vest.durability <= 0) this.vest = null;
+    if (this.boots && this.boots.durability <= 0) this.boots = null;
+
+    const finalDamage = Math.floor(rawDamage * (1 - totalReduction));
+    this.takeDamage(finalDamage);
+    return finalDamage;
   }
 
   /** 데미지 받기 */

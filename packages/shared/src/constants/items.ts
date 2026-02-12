@@ -38,10 +38,11 @@ export const ITEM_SPAWN_CONFIG = {
 
 /** 스폰 가중치 (합계 100) */
 export const SPAWN_WEIGHTS = {
-  weapon: 30,
-  ammo: 35,
-  healing: 25,
+  weapon: 25,
+  ammo: 30,
+  healing: 20,
   throwable: 10,
+  armor: 15,
 } as const;
 
 /** 스폰 무기 풀 (전체 23종) */

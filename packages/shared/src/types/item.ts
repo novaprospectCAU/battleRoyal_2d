@@ -78,7 +78,7 @@ export interface ThrowableDef {
 
 // === 바닥 아이템 ===
 
-export type GroundItemKind = 'weapon' | 'ammo' | 'healing' | 'throwable';
+export type GroundItemKind = 'weapon' | 'ammo' | 'healing' | 'throwable' | 'armor';
 
 export interface GroundItem {
   id: string;

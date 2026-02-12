@@ -5,3 +5,4 @@ export * from './weapons.js';
 export * from './zone.js';
 export * from './ai.js';
 export * from './items.js';
+export * from './armor.js';

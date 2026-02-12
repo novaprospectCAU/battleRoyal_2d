@@ -25,12 +25,17 @@ import {
   SPAWN_WEIGHTS,
   SPAWN_WEAPON_POOL,
   SPAWN_AMMO_RANGES,
+  ARMOR_ITEMS,
+  ARMOR_TIERS,
+  ARMOR_TIER_WEIGHTS,
   type WeaponDef,
   type FireMode,
   type UsableItemDef,
   type ThrowableDef,
   type GroundItem,
   type GroundItemKind,
+  type Armor,
+  type ArmorType,
 } from '@battle-royal/shared';
 
 /**
@@ -908,6 +913,32 @@ export class Game {
         item.isActive = false;
         break;
       }
+
+      case 'armor': {
+        const armorDef = ARMOR_ITEMS[item.itemId];
+        if (!armorDef) break;
+        const newArmor = this.createArmorFromDef(armorDef);
+        const slotKey = armorDef.type as 'helmet' | 'vest' | 'boots';
+        const current = this.localPlayer[slotKey];
+
+        if (!current) {
+          // 빈 슬롯 → 장착
+          this.localPlayer[slotKey] = newArmor;
+          item.isActive = false;
+        } else if (armorDef.tier < current.tier) {
+          // 상위 티어(숫자 낮음 = 성능 좋음) → 기존 드랍 후 장착
+          this.dropArmorToGround(slotKey, this.localPlayer.x, this.localPlayer.y);
+          this.localPlayer[slotKey] = newArmor;
+          item.isActive = false;
+        } else if (armorDef.tier === current.tier && newArmor.durability > current.durability) {
+          // 동일 티어 + 높은 내구도 → 교체
+          this.dropArmorToGround(slotKey, this.localPlayer.x, this.localPlayer.y);
+          this.localPlayer[slotKey] = newArmor;
+          item.isActive = false;
+        }
+        // 하위 티어 → 무시 (줍지 않음)
+        break;
+      }
     }
   }
 
@@ -927,6 +958,34 @@ export class Game {
 
     this.throwableSlot = null;
     this.throwableCount = 0;
+  }
+
+  /** ArmorItemDef → Armor 인스턴스 생성 */
+  private createArmorFromDef(def: { type: ArmorType; tier: 1 | 2 | 3 }): Armor {
+    const tierConfig = ARMOR_TIERS[def.tier];
+    return {
+      type: def.type as Armor['type'],
+      tier: def.tier,
+      durability: tierConfig.maxDurability,
+      maxDurability: tierConfig.maxDurability,
+    };
+  }
+
+  /** 아머를 바닥에 드랍 */
+  private dropArmorToGround(slotKey: 'helmet' | 'vest' | 'boots', x: number, y: number): void {
+    const armor = this.localPlayer[slotKey];
+    if (!armor) return;
+    const itemId = `${armor.type}_t${armor.tier}`;
+    this.groundItems.push({
+      id: `drop-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      x,
+      y,
+      kind: 'armor',
+      itemId,
+      quantity: 1,
+      isActive: true,
+    });
+    this.localPlayer[slotKey] = null;
   }
 
   /** 무기 장착 (슬롯에 배치, 탄창 0발 — 탄약은 별도 줍기) */
@@ -1184,12 +1243,12 @@ export class Game {
           const damage = Math.floor(def.damage * ratio);
           if (damage > 0) {
             const wasAlive = player.isAlive;
-            player.takeDamage(damage);
+            const actualDamage = player.takeDamageWithArmor(damage);
 
             this.damageNumbers.push({
               x: player.x,
               y: player.y - PLAYER_CONFIG.radius - 10,
-              damage,
+              damage: actualDamage,
               time: now,
             });
 
@@ -1358,12 +1417,14 @@ export class Game {
 
   /** 가중치 기반 아이템 종류 선택 */
   private pickWeightedKind(): GroundItemKind {
-    const total = SPAWN_WEIGHTS.weapon + SPAWN_WEIGHTS.ammo + SPAWN_WEIGHTS.healing + SPAWN_WEIGHTS.throwable;
+    const total = SPAWN_WEIGHTS.weapon + SPAWN_WEIGHTS.ammo + SPAWN_WEIGHTS.healing + SPAWN_WEIGHTS.throwable + SPAWN_WEIGHTS.armor;
     const r = Math.random() * total;
-    if (r < SPAWN_WEIGHTS.weapon) return 'weapon';
-    if (r < SPAWN_WEIGHTS.weapon + SPAWN_WEIGHTS.ammo) return 'ammo';
-    if (r < SPAWN_WEIGHTS.weapon + SPAWN_WEIGHTS.ammo + SPAWN_WEIGHTS.healing) return 'healing';
-    return 'throwable';
+    let cum = 0;
+    cum += SPAWN_WEIGHTS.weapon;  if (r < cum) return 'weapon';
+    cum += SPAWN_WEIGHTS.ammo;    if (r < cum) return 'ammo';
+    cum += SPAWN_WEIGHTS.healing; if (r < cum) return 'healing';
+    cum += SPAWN_WEIGHTS.throwable; if (r < cum) return 'throwable';
+    return 'armor';
   }
 
   /** 바닥 아이템 생성 */
@@ -1398,7 +1459,23 @@ export class Game {
         const throwableId = throwables[Math.floor(Math.random() * throwables.length)];
         return { id, x, y, kind, itemId: throwableId, quantity: 1, isActive: true };
       }
+      case 'armor': {
+        const tier = this.pickArmorTier();
+        const types: ArmorType[] = ['helmet', 'vest', 'boots'];
+        const armorType = types[Math.floor(Math.random() * types.length)];
+        const itemId = `${armorType}_t${tier}`;
+        return { id, x, y, kind, itemId, quantity: 1, isActive: true };
+      }
     }
+  }
+
+  /** 아머 티어 가중치 기반 선택 */
+  private pickArmorTier(): 1 | 2 | 3 {
+    const total = ARMOR_TIER_WEIGHTS[1] + ARMOR_TIER_WEIGHTS[2] + ARMOR_TIER_WEIGHTS[3];
+    const r = Math.random() * total;
+    if (r < ARMOR_TIER_WEIGHTS[1]) return 1;
+    if (r < ARMOR_TIER_WEIGHTS[1] + ARMOR_TIER_WEIGHTS[2]) return 2;
+    return 3;
   }
 
   /** 투사체 업데이트 */
@@ -1421,15 +1498,15 @@ export class Game {
       // 플레이어 충돌 체크 (이동 경로 전체에서 체크)
       const hitPlayer = this.checkProjectilePlayerCollisionPath(proj, prevX, prevY);
       if (hitPlayer) {
-        // 데미지 적용
+        // 데미지 적용 (아머 경감 포함)
         const weapon = WEAPONS[proj.weaponId];
-        const damage = weapon 
+        const rawDamage = weapon
           ? Math.floor(proj.damage * proj.getDamageMultiplier(weapon))
           : proj.damage;
-        
+
         const wasAlive = hitPlayer.isAlive;
-        hitPlayer.takeDamage(damage);
-        
+        const actualDamage = hitPlayer.takeDamageWithArmor(rawDamage, proj.distanceTraveled);
+
         // 킬 발생 시 킬로그 추가
         if (wasAlive && !hitPlayer.isAlive) {
           const killer = this.players.get(proj.ownerId);
@@ -1440,12 +1517,12 @@ export class Game {
             time: performance.now(),
           });
         }
-        
+
         // 데미지 숫자 표시 추가
         this.damageNumbers.push({
           x: hitPlayer.x,
           y: hitPlayer.y - PLAYER_CONFIG.radius - 10,
-          damage,
+          damage: actualDamage,
           time: performance.now(),
         });
         
@@ -1729,6 +1806,14 @@ export class Game {
       this.localPlayer.maxHp,
       this.healOverTimeGauge,
       HEAL_OVER_TIME_CONFIG.maxGauge,
+      viewH
+    );
+
+    // HUD: 좌하단 아머 표시 (체력 위)
+    this.renderer.drawArmorHUD(
+      this.localPlayer.helmet,
+      this.localPlayer.vest,
+      this.localPlayer.boots,
       viewH
     );
 
