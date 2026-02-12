@@ -161,6 +161,7 @@ function isSnapshotPayload(payload: unknown): payload is SnapshotPayload {
     typeof value.botCount === 'number' &&
     typeof value.zone === 'object' &&
     value.zone !== null &&
+    Array.isArray(value.botShots) &&
     Array.isArray(value.players)
   );
 }

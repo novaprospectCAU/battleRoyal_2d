@@ -111,6 +111,14 @@ export interface SnapshotZonePayload {
   };
 }
 
+export interface SnapshotBotShot {
+  id: string;
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+}
+
 /** 클라이언트 입력 */
 export interface InputPayload {
   seq: number;
@@ -143,6 +151,7 @@ export interface SnapshotPayload {
   humanCount: number;
   botCount: number;
   zone: SnapshotZonePayload;
+  botShots: SnapshotBotShot[];
   players: SnapshotPlayer[];
 }
 

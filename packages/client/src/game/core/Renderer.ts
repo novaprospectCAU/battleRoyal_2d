@@ -1444,6 +1444,26 @@ export class Renderer {
     }
   }
 
+  /** 봇 사격 트레이서 */
+  drawBotShotTracers(tracers: { fromX: number; fromY: number; toX: number; toY: number; time: number }[]): void {
+    const now = performance.now();
+    for (const tracer of tracers) {
+      const age = now - tracer.time;
+      if (age > 120) continue;
+      const alpha = 1 - age / 120;
+
+      this.ctx.save();
+      this.ctx.globalAlpha = alpha * 0.9;
+      this.ctx.strokeStyle = '#ffd166';
+      this.ctx.lineWidth = 2;
+      this.ctx.beginPath();
+      this.ctx.moveTo(tracer.fromX, tracer.fromY);
+      this.ctx.lineTo(tracer.toX, tracer.toY);
+      this.ctx.stroke();
+      this.ctx.restore();
+    }
+  }
+
   /** 투척 상태 UI (우측 하단) */
   drawThrowableStatus(
     throwable: ThrowableDef,

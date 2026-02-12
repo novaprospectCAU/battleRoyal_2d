@@ -57,6 +57,7 @@ type Room = {
   phase: GamePhase;
   worldSeed: number;
   zone: ServerZoneState;
+  pendingBotShots: { id: string; fromX: number; fromY: number; toX: number; toY: number }[];
   humans: Set<string>;
   bots: BotState[];
   tick: number;
@@ -261,6 +262,7 @@ function createRoom(host: Session): Room {
     phase: 'waiting',
     worldSeed,
     zone: createInitialZoneState(),
+    pendingBotShots: [],
     humans: new Set([host.id]),
     bots: [],
     tick: 0,
@@ -392,6 +394,13 @@ function updateBots(room: Room, dtSec: number): void {
       now - bot.lastAttackAt >= BOT_ATTACK_COOLDOWN_MS
     ) {
       bot.lastAttackAt = now;
+      room.pendingBotShots.push({
+        id: `${bot.id}-${now}`,
+        fromX: bot.x,
+        fromY: bot.y,
+        toX: nearestTarget.session.x,
+        toY: nearestTarget.session.y,
+      });
       nearestTarget.session.hp = Math.max(0, nearestTarget.session.hp - BOT_ATTACK_DAMAGE);
       if (nearestTarget.session.hp <= 0) {
         nearestTarget.session.isAlive = false;
@@ -642,8 +651,11 @@ function broadcastSnapshot(room: Room): void {
     humanCount: room.humans.size,
     botCount: room.bots.length,
     zone: toSnapshotZone(room.zone),
+    botShots: room.pendingBotShots,
     players,
   };
+
+  room.pendingBotShots = [];
 
   const message = serializeMessage(createMessage('SNAPSHOT', payload));
   for (const humanId of room.humans) {

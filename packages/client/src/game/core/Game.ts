@@ -144,6 +144,7 @@ export class Game {
   private multiplayerPhase: 'waiting' | 'countdown' | 'playing' | 'ended' = 'waiting';
   private multiplayerWorldSeed: number | null = null;
   private worldRandom: () => number = Math.random;
+  private botShotTracers: { fromX: number; fromY: number; toX: number; toY: number; time: number }[] = [];
 
   constructor(canvas: HTMLCanvasElement, options: { multiplayer?: boolean } = {}) {
     this.canvas = canvas;
@@ -225,6 +226,16 @@ export class Game {
     if (!this.isMultiplayerMode) return;
 
     this.zone.syncFromNetwork(snapshot.zone);
+    const now = performance.now();
+    for (const shot of snapshot.botShots) {
+      this.botShotTracers.push({
+        fromX: shot.fromX,
+        fromY: shot.fromY,
+        toX: shot.toX,
+        toY: shot.toY,
+        time: now,
+      });
+    }
     const activeRemoteIds = new Set<string>();
 
     for (const snapshotPlayer of snapshot.players) {
@@ -302,13 +313,16 @@ export class Game {
       const dy = this.localServerTarget.y - this.localPlayer.y;
       const distSq = dx * dx + dy * dy;
 
-      // 큰 오차는 즉시 보정, 작은 오차는 부드럽게 수렴
-      if (distSq > 64 * 64) {
+      // 작은 오차는 무시해 밀리는 느낌을 줄이고, 큰 오차만 보정
+      if (distSq <= 20 * 20) {
+        // noop
+      } else if (distSq > 120 * 120) {
         this.localPlayer.x = this.localServerTarget.x;
         this.localPlayer.y = this.localServerTarget.y;
       } else {
-        this.localPlayer.x += dx * smoothing;
-        this.localPlayer.y += dy * smoothing;
+        const correction = Math.min(0.18, smoothing);
+        this.localPlayer.x += dx * correction;
+        this.localPlayer.y += dy * correction;
       }
       this.localPlayer.hp = this.localServerTarget.hp;
       this.localPlayer.isAlive = this.localServerTarget.isAlive;
@@ -1482,6 +1496,11 @@ export class Game {
         this.explosionEffects.splice(i, 1);
       }
     }
+    for (let i = this.botShotTracers.length - 1; i >= 0; i--) {
+      if (now - this.botShotTracers[i].time > 150) {
+        this.botShotTracers.splice(i, 1);
+      }
+    }
   }
 
   /** 바닥 아이템 생성 (맵 FLOOR 타일 기반) */
@@ -1887,6 +1906,9 @@ export class Game {
     for (const proj of this.projectiles) {
       this.renderer.drawProjectile(proj, alpha);
     }
+
+    // 서버 봇 사격 트레이서
+    this.renderer.drawBotShotTracers(this.botShotTracers);
 
     // 투척 수류탄 그리기
     for (const g of this.thrownGrenades) {
