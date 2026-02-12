@@ -14,7 +14,7 @@ export interface InputState {
   reloadPressed: boolean;
   /** 아이템 사용 취소 키 (F) 눌림 */
   cancelItemPressed: boolean;
-  /** 상호작용 키 (E) 눌림 */
+  /** 상호작용 키 (Space) 눌림 */
   interactPressed: boolean;
   /** 발사 모드 전환 키 (B) 눌림 */
   fireModeSwitchPressed: boolean;
@@ -147,8 +147,8 @@ export class InputManager {
       this.cancelItemPressed = true;
     }
 
-    // 상호작용 키 (E)
-    if (e.key.toLowerCase() === 'e') {
+    // 상호작용 키 (Space)
+    if (e.key === ' ') {
       this.interactPressed = true;
     }
 

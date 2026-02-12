@@ -363,13 +363,13 @@ function updateBots(room: Room, dtSec: number): void {
 
   for (const bot of room.bots) {
     if (!bot.isAlive) continue;
-    let nearestTarget: { session: Session; distance: number } | null = null;
+    let nearestTarget: BotTarget | null = null;
 
     if (now >= bot.nextTurnAt) {
-      nearestTarget = findClosestHuman(bot.x, bot.y, humans);
+      nearestTarget = findClosestTarget(bot, humans, room.bots);
       if (nearestTarget && nearestTarget.distance <= BOT_CHASE_RANGE) {
-        const dirX = nearestTarget.session.x - bot.x;
-        const dirY = nearestTarget.session.y - bot.y;
+        const dirX = nearestTarget.x - bot.x;
+        const dirY = nearestTarget.y - bot.y;
         const len = Math.hypot(dirX, dirY) || 1;
         bot.moveX = (dirX / len) * 0.85;
         bot.moveY = (dirY / len) * 0.85;
@@ -385,7 +385,7 @@ function updateBots(room: Room, dtSec: number): void {
     }
 
     if (!nearestTarget) {
-      nearestTarget = findClosestHuman(bot.x, bot.y, humans);
+      nearestTarget = findClosestTarget(bot, humans, room.bots);
     }
 
     if (
@@ -398,13 +398,15 @@ function updateBots(room: Room, dtSec: number): void {
         id: `${bot.id}-${now}`,
         fromX: bot.x,
         fromY: bot.y,
-        toX: nearestTarget.session.x,
-        toY: nearestTarget.session.y,
+        toX: nearestTarget.x,
+        toY: nearestTarget.y,
       });
-      nearestTarget.session.hp = Math.max(0, nearestTarget.session.hp - BOT_ATTACK_DAMAGE);
-      if (nearestTarget.session.hp <= 0) {
-        nearestTarget.session.isAlive = false;
-        nearestTarget.session.input = emptyInput();
+      nearestTarget.hpRef.hp = Math.max(0, nearestTarget.hpRef.hp - BOT_ATTACK_DAMAGE);
+      if (nearestTarget.hpRef.hp <= 0) {
+        nearestTarget.hpRef.isAlive = false;
+        if (nearestTarget.hpRef.input) {
+          nearestTarget.hpRef.input = emptyInput();
+        }
       }
     }
 
@@ -425,19 +427,46 @@ function updateBots(room: Room, dtSec: number): void {
   }
 }
 
-function findClosestHuman(
-  x: number,
-  y: number,
-  humans: Session[]
-): { session: Session; distance: number } | null {
-  let best: { session: Session; distance: number } | null = null;
+type BotTarget = {
+  x: number;
+  y: number;
+  distance: number;
+  hpRef: { hp: number; isAlive: boolean; input?: InputPayload };
+};
+
+function findClosestTarget(
+  sourceBot: BotState,
+  humans: Session[],
+  bots: BotState[]
+): BotTarget | null {
+  let best: BotTarget | null = null;
 
   for (const session of humans) {
-    const dx = session.x - x;
-    const dy = session.y - y;
+    const dx = session.x - sourceBot.x;
+    const dy = session.y - sourceBot.y;
     const dist = Math.hypot(dx, dy);
     if (!best || dist < best.distance) {
-      best = { session, distance: dist };
+      best = {
+        x: session.x,
+        y: session.y,
+        distance: dist,
+        hpRef: session,
+      };
+    }
+  }
+
+  for (const bot of bots) {
+    if (!bot.isAlive || bot.id === sourceBot.id) continue;
+    const dx = bot.x - sourceBot.x;
+    const dy = bot.y - sourceBot.y;
+    const dist = Math.hypot(dx, dy);
+    if (!best || dist < best.distance) {
+      best = {
+        x: bot.x,
+        y: bot.y,
+        distance: dist,
+        hpRef: bot,
+      };
     }
   }
 

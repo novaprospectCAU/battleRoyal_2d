@@ -334,21 +334,24 @@ export class Game {
         PLAYER_CONFIG.radius + 2
       );
 
-      // 작은 오차는 무시해 밀리는 느낌을 줄이고, 큰 오차만 보정
-      if (distSq <= 20 * 20) {
-        // noop
-      } else if (nearWall && distSq <= 180 * 180) {
-        // 벽 근처에서는 미세 보정으로 인한 들러붙음을 막기 위해 중간 오차 보정 생략
-      } else {
-        const dist = Math.sqrt(distSq);
-        const correction = nearWall
-          ? Math.min(10, Math.max(2, dist * 0.06))
-          : (dist > 120 ? 48 : Math.max(4, dist * Math.min(0.18, smoothing)));
-        const nx = dx / (dist || 1);
-        const ny = dy / (dist || 1);
-        this.localPlayer.x += nx * correction;
-        this.localPlayer.y += ny * correction;
-        this.handlePlayerCollision(this.localPlayer);
+      // 게임 시작 전에는 위치 보정을 끄고 화면 깜빡임/진동 방지
+      if (this.multiplayerPhase === 'playing') {
+        // 작은 오차는 무시해 밀리는 느낌을 줄이고, 큰 오차만 보정
+        if (distSq <= 20 * 20) {
+          // noop
+        } else if (nearWall && distSq <= 320 * 320) {
+          // 벽 근접 상태에서는 보정을 대부분 끄고 충돌-보정 루프를 피한다.
+        } else {
+          const dist = Math.sqrt(distSq);
+          const correction = nearWall
+            ? Math.min(6, Math.max(1.5, dist * 0.03))
+            : Math.min(16, Math.max(3, dist * Math.min(0.12, smoothing)));
+          const nx = dx / (dist || 1);
+          const ny = dy / (dist || 1);
+          this.localPlayer.x += nx * correction;
+          this.localPlayer.y += ny * correction;
+          this.handlePlayerCollision(this.localPlayer);
+        }
       }
       this.localPlayer.hp = this.localServerTarget.hp;
       this.localPlayer.isAlive = this.localServerTarget.isAlive;
