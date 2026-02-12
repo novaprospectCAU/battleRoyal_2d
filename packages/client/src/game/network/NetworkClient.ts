@@ -29,6 +29,7 @@ export class NetworkClient {
   private readonly handlers: NetworkHandlers;
   private seq = 0;
   private playerId: string | null = null;
+  private closedByClient = false;
 
   constructor(url: string, handlers: NetworkHandlers = {}) {
     this.url = url;
@@ -38,6 +39,7 @@ export class NetworkClient {
   connect(playerName: string, mode: RoomJoinMode): void {
     if (this.socket && this.socket.readyState <= 1) return;
 
+    this.closedByClient = false;
     this.handlers.onStateChange?.('connecting');
     const socket = new WebSocket(this.url);
     this.socket = socket;
@@ -61,19 +63,26 @@ export class NetworkClient {
       this.handleMessage(parsed);
     });
 
-    socket.addEventListener('close', () => {
+    socket.addEventListener('close', (event) => {
       this.handlers.onStateChange?.('closed');
+      if (!this.closedByClient) {
+        const reason = event.reason ? ` (${event.reason})` : '';
+        this.handlers.onError?.(
+          `WebSocket disconnected: code=${event.code}${reason}. 서버 실행 여부와 주소를 확인해 주세요.`
+        );
+      }
       this.socket = null;
     });
 
     socket.addEventListener('error', () => {
       this.handlers.onStateChange?.('error');
-      this.handlers.onError?.('WebSocket connection error');
+      this.handlers.onError?.(`WebSocket connection error (${this.url})`);
     });
   }
 
   disconnect(): void {
     if (!this.socket) return;
+    this.closedByClient = true;
     this.socket.close();
     this.socket = null;
   }

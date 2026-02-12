@@ -74,7 +74,7 @@ export function GameScreen({ onBack, mode, multiplayer }: GameScreenProps) {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const url = import.meta.env.VITE_SERVER_URL ?? 'ws://localhost:3000';
+    const url = resolveServerUrl();
     const joinMode: RoomJoinMode = multiplayer.role === 'host'
       ? { kind: 'host' }
       : { kind: 'join', inviteCode: multiplayer.inviteCode };
@@ -263,4 +263,15 @@ export function GameScreen({ onBack, mode, multiplayer }: GameScreenProps) {
       </div>
     </div>
   );
+}
+
+function resolveServerUrl(): string {
+  const configured = import.meta.env.VITE_SERVER_URL;
+  if (configured && configured.length > 0) {
+    return configured;
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.hostname;
+  return `${protocol}//${host}:3000`;
 }
