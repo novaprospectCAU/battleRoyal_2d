@@ -180,8 +180,12 @@ export class Game {
     // 바닥 아이템 생성
     this.generateGroundItems();
 
-    // 테스트용 AI 봇 생성
-    this.spawnTestEnemies(19);
+    if (!this.isMultiplayerMode) {
+      // 테스트용 AI 봇 생성
+      this.spawnTestEnemies(19);
+    } else {
+      this.totalPlayerCount = this.players.size;
+    }
   }
 
   /** 멀티플레이 로컬 플레이어 식별 */
@@ -204,9 +208,6 @@ export class Game {
       if (snapshotPlayer.id === this.localServerPlayerId) {
         continue;
       }
-      if (snapshotPlayer.id.startsWith('bot-')) {
-        continue;
-      }
 
       const remoteId = `net-${snapshotPlayer.id}`;
       activeRemoteIds.add(remoteId);
@@ -220,7 +221,7 @@ export class Game {
       }
 
       player.isLocalPlayer = false;
-      player.isBot = false;
+      player.isBot = snapshotPlayer.id.startsWith('bot-');
       player.name = snapshotPlayer.name;
       player.setMovement(0, 0);
       player.update(0);
