@@ -68,7 +68,7 @@ export class NetworkClient {
       if (!this.closedByClient) {
         const reason = event.reason ? ` (${event.reason})` : '';
         this.handlers.onError?.(
-          `WebSocket disconnected: code=${event.code}${reason}. 서버 실행 여부와 주소를 확인해 주세요.`
+          `WebSocket disconnected: code=${event.code}${reason}. 서버를 별도 터미널에서 실행해 주세요 (npm run dev:server).`
         );
       }
       this.socket = null;
@@ -76,7 +76,7 @@ export class NetworkClient {
 
     socket.addEventListener('error', () => {
       this.handlers.onStateChange?.('error');
-      this.handlers.onError?.(`WebSocket connection error (${this.url})`);
+      this.handlers.onError?.(`WebSocket connection error (${this.url}). 서버 실행 명령: npm run dev:server`);
     });
   }
 
