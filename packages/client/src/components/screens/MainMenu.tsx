@@ -1,10 +1,11 @@
 import styles from './MainMenu.module.css';
 
 interface MainMenuProps {
-  onStartGame: () => void;
+  onStartSinglePlayer: () => void;
+  onStartMultiplayer: () => void;
 }
 
-export function MainMenu({ onStartGame }: MainMenuProps) {
+export function MainMenu({ onStartSinglePlayer, onStartMultiplayer }: MainMenuProps) {
   return (
     <div className={styles.container}>
       <div className={styles.content}>
@@ -20,16 +21,16 @@ export function MainMenu({ onStartGame }: MainMenuProps) {
         <div className={styles.buttons}>
           <button 
             className="btn btn-primary"
-            onClick={onStartGame}
+            onClick={onStartSinglePlayer}
           >
             🎮 게임 시작
           </button>
           
           <button 
             className="btn btn-secondary"
-            disabled
+            onClick={onStartMultiplayer}
           >
-            🌐 멀티플레이 (준비 중)
+            🌐 멀티플레이 (MVP)
           </button>
         </div>
 

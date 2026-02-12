@@ -73,3 +73,18 @@
   color: rgba(255, 255, 255, 0.6);
   border-radius: 4px;
 }
+
+.networkPanel {
+  position: absolute;
+  top: 60px;
+  left: 16px;
+  padding: 8px 10px;
+  min-width: 180px;
+  font-size: 11px;
+  line-height: 1.45;
+  font-family: monospace;
+  background: rgba(0, 0, 0, 0.55);
+  color: #cfe8ff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}

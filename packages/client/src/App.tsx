@@ -3,11 +3,19 @@ import { GameScreen } from './components/screens/GameScreen';
 import { MainMenu } from './components/screens/MainMenu';
 
 type Screen = 'menu' | 'game';
+type GameMode = 'single' | 'multiplayer';
 
 function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('menu');
+  const [gameMode, setGameMode] = useState<GameMode>('single');
 
-  const handleStartGame = () => {
+  const handleStartSinglePlayer = () => {
+    setGameMode('single');
+    setCurrentScreen('game');
+  };
+
+  const handleStartMultiplayer = () => {
+    setGameMode('multiplayer');
     setCurrentScreen('game');
   };
 
@@ -18,10 +26,13 @@ function App() {
   return (
     <div className="app">
       {currentScreen === 'menu' && (
-        <MainMenu onStartGame={handleStartGame} />
+        <MainMenu
+          onStartSinglePlayer={handleStartSinglePlayer}
+          onStartMultiplayer={handleStartMultiplayer}
+        />
       )}
       {currentScreen === 'game' && (
-        <GameScreen onBack={handleBackToMenu} />
+        <GameScreen onBack={handleBackToMenu} mode={gameMode} />
       )}
     </div>
   );
