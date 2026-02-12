@@ -2,6 +2,7 @@ import {
   createMessage,
   parseMessage,
   serializeMessage,
+  type GamePhase,
   type InputPayload,
   type NetworkMessage,
   type RoomJoinedPayload,
@@ -86,6 +87,10 @@ export class NetworkClient {
     this.send(createMessage('PING', { clientTime: Date.now() }));
   }
 
+  startGame(): void {
+    this.send(createMessage('GAME_START', {}));
+  }
+
   getPlayerId(): string | null {
     return this.playerId;
   }
@@ -141,6 +146,7 @@ function isSnapshotPayload(payload: unknown): payload is SnapshotPayload {
     typeof value.serverTick === 'number' &&
     typeof value.lastProcessedSeq === 'number' &&
     typeof value.roomCode === 'string' &&
+    isGamePhase(value.phase) &&
     typeof value.humanCount === 'number' &&
     typeof value.botCount === 'number' &&
     Array.isArray(value.players)
@@ -155,8 +161,13 @@ function isRoomJoinedPayload(payload: unknown): payload is RoomJoinedPayload {
     typeof value.inviteCode === 'string' &&
     typeof value.playerId === 'string' &&
     typeof value.isHost === 'boolean' &&
+    isGamePhase(value.phase) &&
     typeof value.targetPlayers === 'number' &&
     typeof value.humanCount === 'number' &&
     typeof value.botCount === 'number'
   );
+}
+
+function isGamePhase(value: unknown): value is GamePhase {
+  return value === 'waiting' || value === 'countdown' || value === 'playing' || value === 'ended';
 }

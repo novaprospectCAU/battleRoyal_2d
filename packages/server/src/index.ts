@@ -6,6 +6,7 @@ import {
   createMessage,
   parseMessage,
   serializeMessage,
+  type GamePhase,
   type InputPayload,
   type NetworkMessage,
   type SnapshotPayload,
@@ -14,6 +15,7 @@ import {
 const PORT = 3000;
 const ROOM_TARGET_PLAYERS = 20;
 const ROOM_CODE_LENGTH = 6;
+const BOT_CHASE_RANGE = 360;
 
 type Session = {
   id: string;
@@ -45,6 +47,7 @@ type BotState = {
 type Room = {
   code: string;
   hostId: string;
+  phase: GamePhase;
   humans: Set<string>;
   bots: BotState[];
   tick: number;
@@ -115,7 +118,9 @@ wss.on('connection', (socket, req) => {
 
 const tickTimer = setInterval(() => {
   for (const room of rooms.values()) {
-    stepRoomSimulation(room, TICK_INTERVAL);
+    if (room.phase === 'playing') {
+      stepRoomSimulation(room, TICK_INTERVAL);
+    }
     broadcastSnapshot(room);
   }
 }, TICK_INTERVAL);
@@ -161,6 +166,11 @@ function handleMessage(session: Session, message: NetworkMessage): void {
         break;
       }
 
+      if (room.phase !== 'waiting') {
+        sendError(session, 'GAME_ALREADY_STARTED', 'Game already started in this room');
+        break;
+      }
+
       if (room.humans.size >= ROOM_TARGET_PLAYERS) {
         sendError(session, 'ROOM_FULL', `Room ${roomCode} is full`);
         break;
@@ -171,6 +181,25 @@ function handleMessage(session: Session, message: NetworkMessage): void {
       session.roomCode = room.code;
       reconcileBots(room);
       sendRoomJoined(session, room);
+      break;
+    }
+    case 'GAME_START': {
+      const room = getSessionRoom(session);
+      if (!room) {
+        sendError(session, 'NO_ROOM', 'Join or create a room first');
+        break;
+      }
+      if (room.hostId !== session.id) {
+        sendError(session, 'ONLY_HOST_CAN_START', 'Only host can start the game');
+        break;
+      }
+      if (room.phase !== 'waiting') {
+        sendError(session, 'ALREADY_STARTED', 'Game already started');
+        break;
+      }
+      room.phase = 'playing';
+      room.tick = 0;
+      console.log(`🚀 Room started: ${room.code} host=${session.id}`);
       break;
     }
     case 'INPUT': {
@@ -203,6 +232,7 @@ function createRoom(host: Session): Room {
   const room: Room = {
     code,
     hostId: host.id,
+    phase: 'waiting',
     humans: new Set([host.id]),
     bots: [],
     tick: 0,
@@ -244,12 +274,18 @@ function leaveRoom(session: Session): void {
   reconcileBots(room);
 }
 
+function getSessionRoom(session: Session): Room | null {
+  if (!session.roomCode) return null;
+  return rooms.get(session.roomCode) ?? null;
+}
+
 function sendRoomJoined(session: Session, room: Room): void {
   send(session.socket, createMessage('ROOM_JOINED', {
     roomId: room.code,
     inviteCode: room.code,
     playerId: session.id,
     isHost: room.hostId === session.id,
+    phase: room.phase,
     targetPlayers: ROOM_TARGET_PLAYERS,
     humanCount: room.humans.size,
     botCount: room.bots.length,
@@ -286,15 +322,28 @@ function stepRoomSimulation(room: Room, dtMs: number): void {
 
 function updateBots(room: Room, dtSec: number): void {
   const now = Date.now();
+  const humans = Array.from(room.humans)
+    .map((id) => sessions.get(id))
+    .filter((session): session is Session => Boolean(session));
 
   for (const bot of room.bots) {
     if (now >= bot.nextTurnAt) {
-      const angle = Math.random() * Math.PI * 2;
-      const speedScale = 0.35 + Math.random() * 0.55;
-      bot.moveX = Math.cos(angle) * speedScale;
-      bot.moveY = Math.sin(angle) * speedScale;
-      bot.rotation = angle;
-      bot.nextTurnAt = now + 600 + Math.floor(Math.random() * 1400);
+      const target = findClosestHuman(bot.x, bot.y, humans);
+      if (target && target.distance <= BOT_CHASE_RANGE) {
+        const dirX = target.session.x - bot.x;
+        const dirY = target.session.y - bot.y;
+        const len = Math.hypot(dirX, dirY) || 1;
+        bot.moveX = (dirX / len) * 0.85;
+        bot.moveY = (dirY / len) * 0.85;
+      } else {
+        const angle = Math.random() * Math.PI * 2;
+        const speedScale = 0.4 + Math.random() * 0.55;
+        bot.moveX = Math.cos(angle) * speedScale;
+        bot.moveY = Math.sin(angle) * speedScale;
+      }
+
+      bot.rotation = Math.atan2(bot.moveY, bot.moveX);
+      bot.nextTurnAt = now + 350 + Math.floor(Math.random() * 850);
     }
 
     bot.x += bot.moveX * PLAYER_CONFIG.moveSpeed * dtSec;
@@ -312,6 +361,25 @@ function updateBots(room: Room, dtSec: number): void {
 
     bot.rotation = Math.atan2(bot.moveY, bot.moveX);
   }
+}
+
+function findClosestHuman(
+  x: number,
+  y: number,
+  humans: Session[]
+): { session: Session; distance: number } | null {
+  let best: { session: Session; distance: number } | null = null;
+
+  for (const session of humans) {
+    const dx = session.x - x;
+    const dy = session.y - y;
+    const dist = Math.hypot(dx, dy);
+    if (!best || dist < best.distance) {
+      best = { session, distance: dist };
+    }
+  }
+
+  return best;
 }
 
 function reconcileBots(room: Room): void {
@@ -340,7 +408,7 @@ function createBot(room: Room): BotState {
     isAlive: true,
     moveX: Math.cos(angle) * 0.5,
     moveY: Math.sin(angle) * 0.5,
-    nextTurnAt: Date.now() + 800 + Math.floor(Math.random() * 1200),
+    nextTurnAt: Date.now() + 500 + Math.floor(Math.random() * 1200),
   };
 }
 
@@ -373,10 +441,10 @@ function broadcastSnapshot(room: Room): void {
     serverTick: room.tick,
     lastProcessedSeq: Math.max(
       0,
-      ...Array.from(room.humans)
-        .map((id) => sessions.get(id)?.lastInputSeq ?? 0)
+      ...Array.from(room.humans).map((id) => sessions.get(id)?.lastInputSeq ?? 0)
     ),
     roomCode: room.code,
+    phase: room.phase,
     targetPlayers: ROOM_TARGET_PLAYERS,
     humanCount: room.humans.size,
     botCount: room.bots.length,

@@ -78,6 +78,7 @@
   position: absolute;
   top: 60px;
   left: 16px;
+  pointer-events: auto;
   padding: 8px 10px;
   min-width: 180px;
   font-size: 11px;
@@ -87,4 +88,30 @@
   color: #cfe8ff;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 4px;
+}
+
+.networkActions {
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
+}
+
+.actionButton {
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.actionButton:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.networkError {
+  margin-top: 8px;
+  color: #ff9d9d;
+  max-width: 240px;
 }

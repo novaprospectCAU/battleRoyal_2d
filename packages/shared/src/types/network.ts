@@ -87,6 +87,7 @@ export interface RoomJoinedPayload {
   inviteCode: string;
   playerId: string;
   isHost: boolean;
+  phase: GamePhase;
   targetPlayers: number;
   humanCount: number;
   botCount: number;
@@ -118,6 +119,7 @@ export interface SnapshotPayload {
   serverTick: number;
   lastProcessedSeq: number;
   roomCode: string;
+  phase: GamePhase;
   targetPlayers: number;
   humanCount: number;
   botCount: number;

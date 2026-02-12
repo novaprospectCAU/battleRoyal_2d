@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Game } from '@/game/core/Game';
 import { NetworkClient, type RoomJoinMode } from '@/game/network/NetworkClient';
+import type { GamePhase } from '@battle-royal/shared';
 import styles from './GameScreen.module.css';
 
 interface GameScreenProps {
@@ -31,7 +32,9 @@ export function GameScreen({ onBack, mode, multiplayer }: GameScreenProps) {
   const [botCount, setBotCount] = useState(0);
   const [targetPlayers, setTargetPlayers] = useState(20);
   const [isHost, setIsHost] = useState(false);
+  const [phase, setPhase] = useState<GamePhase>('waiting');
   const [serverTick, setServerTick] = useState(0);
+  const [networkError, setNetworkError] = useState<string | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -83,22 +86,26 @@ export function GameScreen({ onBack, mode, multiplayer }: GameScreenProps) {
         gameRef.current?.setLocalServerPlayer(id);
       },
       onRoomJoined: (payload) => {
+        setNetworkError(null);
         setRoomCode(payload.inviteCode);
         setIsHost(payload.isHost);
+        setPhase(payload.phase);
         setHumanCount(payload.humanCount);
         setBotCount(payload.botCount);
         setTargetPlayers(payload.targetPlayers);
       },
       onSnapshot: (snapshot) => {
+        setNetworkError(null);
         setServerTick(snapshot.serverTick);
         setRoomCode(snapshot.roomCode);
+        setPhase(snapshot.phase);
         setHumanCount(snapshot.humanCount);
         setBotCount(snapshot.botCount);
         setTargetPlayers(snapshot.targetPlayers);
         gameRef.current?.applyMultiplayerSnapshot(snapshot);
       },
       onError: (message) => {
-        window.alert(message);
+        setNetworkError(message);
       },
     });
     networkRef.current = networkClient;
@@ -168,9 +175,25 @@ export function GameScreen({ onBack, mode, multiplayer }: GameScreenProps) {
       setBotCount(0);
       setTargetPlayers(20);
       setIsHost(false);
+      setPhase('waiting');
       setServerTick(0);
+      setNetworkError(null);
     };
   }, [mode, multiplayer]);
+
+  const handleCopyRoomCode = async () => {
+    if (roomCode === '-') return;
+    try {
+      await navigator.clipboard.writeText(roomCode);
+    } catch {
+      setNetworkError('클립보드 복사에 실패했습니다. 코드 수동 복사 부탁드립니다.');
+    }
+  };
+
+  const handleStartGame = () => {
+    if (!isHost) return;
+    networkRef.current?.startGame();
+  };
 
   return (
     <div className={styles.container}>
@@ -205,10 +228,36 @@ export function GameScreen({ onBack, mode, multiplayer }: GameScreenProps) {
             <div>WS: {networkState}</div>
             <div>YOU: {playerId}</div>
             <div>ROOM: {roomCode}</div>
+            <div>PHASE: {phase.toUpperCase()}</div>
             <div>HUMAN: {humanCount}</div>
             <div>BOT: {botCount}</div>
             <div>TOTAL: {humanCount + botCount}/{targetPlayers}</div>
             <div>TICK: {serverTick}</div>
+
+            <div className={styles.networkActions}>
+              <button
+                type="button"
+                className={styles.actionButton}
+                onClick={handleCopyRoomCode}
+              >
+                방 코드 복사
+              </button>
+              {isHost && phase === 'waiting' && (
+                <button
+                  type="button"
+                  className={styles.actionButton}
+                  onClick={handleStartGame}
+                >
+                  게임 시작
+                </button>
+              )}
+            </div>
+
+            {networkError && (
+              <div className={styles.networkError}>
+                {networkError}
+              </div>
+            )}
           </div>
         )}
       </div>
