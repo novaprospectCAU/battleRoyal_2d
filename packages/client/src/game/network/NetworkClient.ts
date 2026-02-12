@@ -4,6 +4,7 @@ import {
   serializeMessage,
   type InputPayload,
   type NetworkMessage,
+  type RoomJoinedPayload,
   type SnapshotPayload,
 } from '@battle-royal/shared';
 
@@ -12,9 +13,14 @@ type ConnectionState = 'idle' | 'connecting' | 'connected' | 'closed' | 'error';
 type NetworkHandlers = {
   onStateChange?: (state: ConnectionState) => void;
   onWelcome?: (playerId: string) => void;
+  onRoomJoined?: (payload: RoomJoinedPayload) => void;
   onSnapshot?: (snapshot: SnapshotPayload) => void;
   onError?: (message: string) => void;
 };
+
+export type RoomJoinMode =
+  | { kind: 'host' }
+  | { kind: 'join'; inviteCode: string };
 
 export class NetworkClient {
   private socket: WebSocket | null = null;
@@ -28,7 +34,7 @@ export class NetworkClient {
     this.handlers = handlers;
   }
 
-  connect(playerName: string): void {
+  connect(playerName: string, mode: RoomJoinMode): void {
     if (this.socket && this.socket.readyState <= 1) return;
 
     this.handlers.onStateChange?.('connecting');
@@ -38,7 +44,14 @@ export class NetworkClient {
     socket.addEventListener('open', () => {
       this.handlers.onStateChange?.('connected');
       this.send(createMessage('HELLO', { name: playerName, version: '0.1.0' }));
-      this.send(createMessage('JOIN_ROOM', { roomId: 'default' }));
+      if (mode.kind === 'host') {
+        this.send(createMessage('CREATE_ROOM', {}));
+      } else {
+        this.send(createMessage('JOIN_ROOM', {
+          inviteCode: mode.inviteCode.toUpperCase(),
+          playerName,
+        }));
+      }
     });
 
     socket.addEventListener('message', (event) => {
@@ -95,6 +108,21 @@ export class NetworkClient {
         }
         break;
       }
+      case 'ROOM_JOINED': {
+        if (isRoomJoinedPayload(message.payload)) {
+          this.handlers.onRoomJoined?.(message.payload);
+        }
+        break;
+      }
+      case 'ERROR': {
+        if (typeof message.payload === 'object' && message.payload) {
+          const payload = message.payload as { message?: unknown };
+          if (typeof payload.message === 'string') {
+            this.handlers.onError?.(payload.message);
+          }
+        }
+        break;
+      }
       default:
         break;
     }
@@ -112,6 +140,23 @@ function isSnapshotPayload(payload: unknown): payload is SnapshotPayload {
   return (
     typeof value.serverTick === 'number' &&
     typeof value.lastProcessedSeq === 'number' &&
+    typeof value.roomCode === 'string' &&
+    typeof value.humanCount === 'number' &&
+    typeof value.botCount === 'number' &&
     Array.isArray(value.players)
+  );
+}
+
+function isRoomJoinedPayload(payload: unknown): payload is RoomJoinedPayload {
+  if (typeof payload !== 'object' || payload === null) return false;
+  const value = payload as Record<string, unknown>;
+  return (
+    typeof value.roomId === 'string' &&
+    typeof value.inviteCode === 'string' &&
+    typeof value.playerId === 'string' &&
+    typeof value.isHost === 'boolean' &&
+    typeof value.targetPlayers === 'number' &&
+    typeof value.humanCount === 'number' &&
+    typeof value.botCount === 'number'
   );
 }

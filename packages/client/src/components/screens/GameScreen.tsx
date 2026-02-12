@@ -1,11 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { Game } from '@/game/core/Game';
-import { NetworkClient } from '@/game/network/NetworkClient';
+import { NetworkClient, type RoomJoinMode } from '@/game/network/NetworkClient';
 import styles from './GameScreen.module.css';
 
 interface GameScreenProps {
   onBack: () => void;
   mode: 'single' | 'multiplayer';
+  multiplayer: {
+    role: 'host' | 'join';
+    playerName: string;
+    inviteCode: string;
+  };
 }
 
 type NetInputState = {
@@ -14,14 +19,18 @@ type NetInputState = {
   rotation: number;
 };
 
-export function GameScreen({ onBack, mode }: GameScreenProps) {
+export function GameScreen({ onBack, mode, multiplayer }: GameScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
   const networkRef = useRef<NetworkClient | null>(null);
   const inputRef = useRef<NetInputState>({ moveX: 0, moveY: 0, rotation: 0 });
   const [networkState, setNetworkState] = useState<'idle' | 'connecting' | 'connected' | 'closed' | 'error'>('idle');
   const [playerId, setPlayerId] = useState<string>('-');
-  const [onlineCount, setOnlineCount] = useState(1);
+  const [roomCode, setRoomCode] = useState<string>('-');
+  const [humanCount, setHumanCount] = useState(1);
+  const [botCount, setBotCount] = useState(0);
+  const [targetPlayers, setTargetPlayers] = useState(20);
+  const [isHost, setIsHost] = useState(false);
   const [serverTick, setServerTick] = useState(0);
 
   useEffect(() => {
@@ -63,20 +72,37 @@ export function GameScreen({ onBack, mode }: GameScreenProps) {
     if (!canvas) return;
 
     const url = import.meta.env.VITE_SERVER_URL ?? 'ws://localhost:3000';
+    const joinMode: RoomJoinMode = multiplayer.role === 'host'
+      ? { kind: 'host' }
+      : { kind: 'join', inviteCode: multiplayer.inviteCode };
+
     const networkClient = new NetworkClient(url, {
       onStateChange: setNetworkState,
       onWelcome: (id) => {
         setPlayerId(id);
         gameRef.current?.setLocalServerPlayer(id);
       },
+      onRoomJoined: (payload) => {
+        setRoomCode(payload.inviteCode);
+        setIsHost(payload.isHost);
+        setHumanCount(payload.humanCount);
+        setBotCount(payload.botCount);
+        setTargetPlayers(payload.targetPlayers);
+      },
       onSnapshot: (snapshot) => {
         setServerTick(snapshot.serverTick);
-        setOnlineCount(snapshot.players.length);
+        setRoomCode(snapshot.roomCode);
+        setHumanCount(snapshot.humanCount);
+        setBotCount(snapshot.botCount);
+        setTargetPlayers(snapshot.targetPlayers);
         gameRef.current?.applyMultiplayerSnapshot(snapshot);
+      },
+      onError: (message) => {
+        window.alert(message);
       },
     });
     networkRef.current = networkClient;
-    networkClient.connect(`Player-${Math.floor(Math.random() * 1000)}`);
+    networkClient.connect(multiplayer.playerName, joinMode);
 
     const pressed = new Set<string>();
 
@@ -137,10 +163,14 @@ export function GameScreen({ onBack, mode }: GameScreenProps) {
       networkRef.current = null;
       setNetworkState('idle');
       setPlayerId('-');
-      setOnlineCount(1);
+      setRoomCode('-');
+      setHumanCount(1);
+      setBotCount(0);
+      setTargetPlayers(20);
+      setIsHost(false);
       setServerTick(0);
     };
-  }, [mode]);
+  }, [mode, multiplayer]);
 
   return (
     <div className={styles.container}>
@@ -164,17 +194,20 @@ export function GameScreen({ onBack, mode }: GameScreenProps) {
         <div className={styles.bottomCenter}>
           <div className={styles.controls}>
             {mode === 'multiplayer'
-              ? '멀티 MVP: WASD 입력 서버 전송 중'
+              ? '멀티: 방 코드 공유 후 참가 / 부족 인원 BOT 자동 채움'
               : 'WASD: 이동 | 마우스: 조준'}
           </div>
         </div>
 
         {mode === 'multiplayer' && (
           <div className={styles.networkPanel}>
-            <div>MODE: MULTI (MVP)</div>
+            <div>MODE: {isHost ? 'HOST' : 'GUEST'}</div>
             <div>WS: {networkState}</div>
             <div>YOU: {playerId}</div>
-            <div>ONLINE: {onlineCount}</div>
+            <div>ROOM: {roomCode}</div>
+            <div>HUMAN: {humanCount}</div>
+            <div>BOT: {botCount}</div>
+            <div>TOTAL: {humanCount + botCount}/{targetPlayers}</div>
             <div>TICK: {serverTick}</div>
           </div>
         )}

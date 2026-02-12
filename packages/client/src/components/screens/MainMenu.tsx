@@ -2,10 +2,15 @@ import styles from './MainMenu.module.css';
 
 interface MainMenuProps {
   onStartSinglePlayer: () => void;
-  onStartMultiplayer: () => void;
+  onStartMultiplayerHost: () => void;
+  onStartMultiplayerJoin: () => void;
 }
 
-export function MainMenu({ onStartSinglePlayer, onStartMultiplayer }: MainMenuProps) {
+export function MainMenu({
+  onStartSinglePlayer,
+  onStartMultiplayerHost,
+  onStartMultiplayerJoin,
+}: MainMenuProps) {
   return (
     <div className={styles.container}>
       <div className={styles.content}>
@@ -28,9 +33,16 @@ export function MainMenu({ onStartSinglePlayer, onStartMultiplayer }: MainMenuPr
           
           <button 
             className="btn btn-secondary"
-            onClick={onStartMultiplayer}
+            onClick={onStartMultiplayerHost}
           >
-            🌐 멀티플레이 (MVP)
+            🌐 멀티 호스트
+          </button>
+
+          <button
+            className="btn btn-secondary"
+            onClick={onStartMultiplayerJoin}
+          >
+            🔑 방 코드로 참가
           </button>
         </div>
 

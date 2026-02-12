@@ -18,12 +18,14 @@ export type MessageType =
   | 'PLAYER_DEATH'
   | 'ZONE_UPDATE'
   | 'HELLO'
+  | 'CREATE_ROOM'
   | 'WELCOME'
   | 'INPUT'
   | 'ROOM_JOINED'
   | 'SNAPSHOT'
   | 'PING'
-  | 'PONG';
+  | 'PONG'
+  | 'ERROR';
 
 /** 기본 메시지 구조 */
 export interface NetworkMessage<T = unknown> {
@@ -82,7 +84,12 @@ export interface WelcomePayload {
 /** 방 입장 완료 */
 export interface RoomJoinedPayload {
   roomId: string;
+  inviteCode: string;
   playerId: string;
+  isHost: boolean;
+  targetPlayers: number;
+  humanCount: number;
+  botCount: number;
 }
 
 /** 클라이언트 입력 */
@@ -110,10 +117,20 @@ export interface SnapshotPlayer {
 export interface SnapshotPayload {
   serverTick: number;
   lastProcessedSeq: number;
+  roomCode: string;
+  targetPlayers: number;
+  humanCount: number;
+  botCount: number;
   players: SnapshotPlayer[];
 }
 
 /** RTT 측정 */
 export interface PingPayload {
   clientTime: number;
+}
+
+/** 에러 응답 */
+export interface ErrorPayload {
+  code: string;
+  message: string;
 }
