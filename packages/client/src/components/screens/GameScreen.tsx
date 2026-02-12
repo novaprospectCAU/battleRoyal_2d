@@ -136,9 +136,9 @@ export function GameScreen({ onBack, mode, multiplayer }: GameScreenProps) {
       const rect = canvas.getBoundingClientRect();
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
-      const cx = rect.width / 2;
-      const cy = rect.height / 2;
-      inputRef.current.rotation = Math.atan2(my - cy, mx - cx);
+      const game = gameRef.current;
+      if (!game) return;
+      inputRef.current.rotation = game.getAimRotationFromScreen(mx, my);
     };
 
     window.addEventListener('keydown', onKeyDown);

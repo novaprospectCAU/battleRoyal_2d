@@ -245,7 +245,6 @@ export class Game {
     }
 
     this.totalPlayerCount = snapshot.players.length;
-    this.camera.follow(this.localPlayer);
   }
 
   /** 테스트용 AI 봇 생성 */
@@ -333,6 +332,12 @@ export class Game {
   /** FPS 가져오기 */
   getFps(): number {
     return this.currentFps;
+  }
+
+  /** 화면 좌표 기준 조준 각도 계산 (멀티 입력 전송용) */
+  getAimRotationFromScreen(screenX: number, screenY: number): number {
+    const world = this.camera.screenToWorld(screenX, screenY);
+    return Math.atan2(world.y - this.localPlayer.y, world.x - this.localPlayer.x);
   }
 
   /** 현재 무기 가져오기 (무기 슬롯일 때만) */
@@ -610,9 +615,6 @@ export class Game {
     const input = this.inputManager.getInput();
 
     if (this.isMultiplayerMode) {
-      const worldMouseX = input.mouseX + this.camera.x;
-      const worldMouseY = input.mouseY + this.camera.y;
-      this.localPlayer.lookAt(worldMouseX, worldMouseY);
       return;
     }
     
