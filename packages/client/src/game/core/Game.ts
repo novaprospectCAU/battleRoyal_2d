@@ -130,6 +130,7 @@ export class Game {
   private canvasHeight = 0;
   private readonly isMultiplayerMode: boolean;
   private localServerPlayerId: string | null = null;
+  private networkRemotePlayerIds: Set<string> = new Set();
 
   constructor(canvas: HTMLCanvasElement, options: { multiplayer?: boolean } = {}) {
     this.canvas = canvas;
@@ -178,52 +179,42 @@ export class Game {
     // 바닥 아이템 생성
     this.generateGroundItems();
 
-    if (!this.isMultiplayerMode) {
-      // 테스트용 AI 봇 생성
-      this.spawnTestEnemies(19);
-    } else {
-      this.totalPlayerCount = this.players.size;
-    }
+    // 테스트용 AI 봇 생성
+    this.spawnTestEnemies(19);
   }
 
   /** 멀티플레이 로컬 플레이어 식별 */
   setLocalServerPlayer(playerId: string): void {
     this.localServerPlayerId = playerId;
-
-    if (this.localPlayer.id === playerId) {
-      return;
-    }
-
-    let local = this.players.get(playerId);
-    if (!local) {
-      local = new Player(playerId, this.localPlayer.x, this.localPlayer.y, true);
-      this.players.set(playerId, local);
-    }
-
-    this.localPlayer.isLocalPlayer = false;
-    local.isLocalPlayer = true;
-    this.localPlayer = local;
-    this.camera.follow(this.localPlayer);
-    this.totalPlayerCount = this.players.size;
   }
 
   /** 서버 스냅샷 적용 (멀티플레이 전용) */
   applyMultiplayerSnapshot(snapshot: SnapshotPayload): void {
     if (!this.isMultiplayerMode) return;
 
-    const activeIds = new Set<string>();
+    const activeRemoteIds = new Set<string>();
 
     for (const snapshotPlayer of snapshot.players) {
-      activeIds.add(snapshotPlayer.id);
-      const isLocal = snapshotPlayer.id === this.localServerPlayerId;
-      let player = this.players.get(snapshotPlayer.id);
-
-      if (!player) {
-        player = new Player(snapshotPlayer.id, snapshotPlayer.x, snapshotPlayer.y, isLocal);
-        this.players.set(snapshotPlayer.id, player);
+      if (snapshotPlayer.id === this.localServerPlayerId) {
+        continue;
+      }
+      if (snapshotPlayer.id.startsWith('bot-')) {
+        continue;
       }
 
-      player.isLocalPlayer = isLocal;
+      const remoteId = `net-${snapshotPlayer.id}`;
+      activeRemoteIds.add(remoteId);
+      this.networkRemotePlayerIds.add(remoteId);
+
+      let player = this.players.get(remoteId);
+
+      if (!player) {
+        player = new Player(remoteId, snapshotPlayer.x, snapshotPlayer.y, false);
+        this.players.set(remoteId, player);
+      }
+
+      player.isLocalPlayer = false;
+      player.isBot = false;
       player.name = snapshotPlayer.name;
       player.setMovement(0, 0);
       player.update(0);
@@ -232,19 +223,13 @@ export class Game {
       player.rotation = snapshotPlayer.rotation;
       player.hp = snapshotPlayer.hp;
       player.isAlive = snapshotPlayer.isAlive;
-
-      if (isLocal) {
-        this.localPlayer = player;
-      }
     }
 
-    for (const [playerId] of this.players) {
-      if (playerId === this.localPlayer.id) continue;
-      if (activeIds.has(playerId)) continue;
+    for (const playerId of this.networkRemotePlayerIds) {
+      if (activeRemoteIds.has(playerId)) continue;
       this.players.delete(playerId);
+      this.networkRemotePlayerIds.delete(playerId);
     }
-
-    this.totalPlayerCount = snapshot.players.length;
   }
 
   /** 테스트용 AI 봇 생성 */
@@ -614,10 +599,6 @@ export class Game {
     // 입력 처리
     const input = this.inputManager.getInput();
 
-    if (this.isMultiplayerMode) {
-      return;
-    }
-    
     // 플레이어가 죽었으면 대부분의 행동 불가
     if (!this.localPlayer.isAlive) {
       // 죽은 상태에서도 카메라 조준은 가능
