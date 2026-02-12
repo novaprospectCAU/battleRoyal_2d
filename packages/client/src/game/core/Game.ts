@@ -899,6 +899,11 @@ export class Game {
     const damage = dps * (dt / 1000);
     
     for (const player of this.players.values()) {
+      // 멀티 원격 엔티티(net-*)는 서버가 생사/데미지를 권위적으로 관리
+      if (this.isMultiplayerMode && this.networkRemotePlayerIds.has(player.id)) {
+        continue;
+      }
+
       if (!player.isAlive) continue;
       
       if (!this.zone.isInSafeZone(player.x, player.y)) {
