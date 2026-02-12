@@ -16,6 +16,9 @@ const PORT = 3000;
 const ROOM_TARGET_PLAYERS = 20;
 const ROOM_CODE_LENGTH = 6;
 const BOT_CHASE_RANGE = 360;
+const BOT_ATTACK_RANGE = 220;
+const BOT_ATTACK_DAMAGE = 8;
+const BOT_ATTACK_COOLDOWN_MS = 450;
 
 type Session = {
   id: string;
@@ -42,6 +45,7 @@ type BotState = {
   moveX: number;
   moveY: number;
   nextTurnAt: number;
+  lastAttackAt: number;
 };
 
 type Room = {
@@ -303,6 +307,7 @@ function stepRoomSimulation(room: Room, dtMs: number): void {
   for (const humanId of room.humans) {
     const session = sessions.get(humanId);
     if (!session) continue;
+    if (!session.isAlive) continue;
 
     const input = session.input;
     const length = Math.hypot(input.moveX, input.moveY);
@@ -324,14 +329,18 @@ function updateBots(room: Room, dtSec: number): void {
   const now = Date.now();
   const humans = Array.from(room.humans)
     .map((id) => sessions.get(id))
-    .filter((session): session is Session => Boolean(session));
+    .filter((session): session is Session => session !== undefined)
+    .filter((session) => session.isAlive);
 
   for (const bot of room.bots) {
+    if (!bot.isAlive) continue;
+    let nearestTarget: { session: Session; distance: number } | null = null;
+
     if (now >= bot.nextTurnAt) {
-      const target = findClosestHuman(bot.x, bot.y, humans);
-      if (target && target.distance <= BOT_CHASE_RANGE) {
-        const dirX = target.session.x - bot.x;
-        const dirY = target.session.y - bot.y;
+      nearestTarget = findClosestHuman(bot.x, bot.y, humans);
+      if (nearestTarget && nearestTarget.distance <= BOT_CHASE_RANGE) {
+        const dirX = nearestTarget.session.x - bot.x;
+        const dirY = nearestTarget.session.y - bot.y;
         const len = Math.hypot(dirX, dirY) || 1;
         bot.moveX = (dirX / len) * 0.85;
         bot.moveY = (dirY / len) * 0.85;
@@ -344,6 +353,23 @@ function updateBots(room: Room, dtSec: number): void {
 
       bot.rotation = Math.atan2(bot.moveY, bot.moveX);
       bot.nextTurnAt = now + 350 + Math.floor(Math.random() * 850);
+    }
+
+    if (!nearestTarget) {
+      nearestTarget = findClosestHuman(bot.x, bot.y, humans);
+    }
+
+    if (
+      nearestTarget &&
+      nearestTarget.distance <= BOT_ATTACK_RANGE &&
+      now - bot.lastAttackAt >= BOT_ATTACK_COOLDOWN_MS
+    ) {
+      bot.lastAttackAt = now;
+      nearestTarget.session.hp = Math.max(0, nearestTarget.session.hp - BOT_ATTACK_DAMAGE);
+      if (nearestTarget.session.hp <= 0) {
+        nearestTarget.session.isAlive = false;
+        nearestTarget.session.input = emptyInput();
+      }
     }
 
     bot.x += bot.moveX * PLAYER_CONFIG.moveSpeed * dtSec;
@@ -409,6 +435,7 @@ function createBot(room: Room): BotState {
     moveX: Math.cos(angle) * 0.5,
     moveY: Math.sin(angle) * 0.5,
     nextTurnAt: Date.now() + 500 + Math.floor(Math.random() * 1200),
+    lastAttackAt: 0,
   };
 }
 

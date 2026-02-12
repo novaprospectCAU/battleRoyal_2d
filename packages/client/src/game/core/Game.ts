@@ -131,6 +131,15 @@ export class Game {
   private readonly isMultiplayerMode: boolean;
   private localServerPlayerId: string | null = null;
   private networkRemotePlayerIds: Set<string> = new Set();
+  private networkRemoteTargets: Map<string, {
+    x: number;
+    y: number;
+    rotation: number;
+    hp: number;
+    isAlive: boolean;
+    isBot: boolean;
+    name: string;
+  }> = new Map();
   private multiplayerPhase: 'waiting' | 'countdown' | 'playing' | 'ended' = 'waiting';
 
   constructor(canvas: HTMLCanvasElement, options: { multiplayer?: boolean } = {}) {
@@ -226,10 +235,22 @@ export class Game {
       player.isBot = snapshotPlayer.id.startsWith('bot-');
       player.name = snapshotPlayer.name;
       player.setMovement(0, 0);
-      player.update(0);
-      player.x = snapshotPlayer.x;
-      player.y = snapshotPlayer.y;
-      player.rotation = snapshotPlayer.rotation;
+      if (!existed) {
+        player.update(0);
+        player.x = snapshotPlayer.x;
+        player.y = snapshotPlayer.y;
+        player.rotation = snapshotPlayer.rotation;
+      }
+
+      this.networkRemoteTargets.set(remoteId, {
+        x: snapshotPlayer.x,
+        y: snapshotPlayer.y,
+        rotation: snapshotPlayer.rotation,
+        hp: snapshotPlayer.hp,
+        isAlive: snapshotPlayer.isAlive,
+        isBot: isServerBot,
+        name: snapshotPlayer.name,
+      });
 
       // 멀티에서 봇 데미지는 현재 클라이언트 시뮬레이션 기준으로 유지.
       // 서버 스냅샷 hp를 매틱 덮어쓰면 맞아도 즉시 풀피로 복구되어 보임.
@@ -243,6 +264,33 @@ export class Game {
       if (activeRemoteIds.has(playerId)) continue;
       this.players.delete(playerId);
       this.networkRemotePlayerIds.delete(playerId);
+      this.networkRemoteTargets.delete(playerId);
+    }
+  }
+
+  /** 원격 플레이어 스냅샷 보간 */
+  private updateNetworkRemotePlayers(dt: number): void {
+    if (!this.isMultiplayerMode) return;
+    const smoothing = 1 - Math.exp(-dt / 90);
+
+    for (const playerId of this.networkRemotePlayerIds) {
+      const player = this.players.get(playerId);
+      const target = this.networkRemoteTargets.get(playerId);
+      if (!player || !target) continue;
+
+      player.x += (target.x - player.x) * smoothing;
+      player.y += (target.y - player.y) * smoothing;
+
+      let diff = target.rotation - player.rotation;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      player.rotation += diff * smoothing;
+
+      // 봇은 클라이언트 로컬 전투 결과를 유지하고, 유저만 서버 상태를 신뢰
+      if (!target.isBot) {
+        player.hp = target.hp;
+        player.isAlive = target.isAlive;
+      }
     }
   }
 
@@ -617,8 +665,11 @@ export class Game {
       const worldMouseX = input.mouseX + this.camera.x;
       const worldMouseY = input.mouseY + this.camera.y;
       this.localPlayer.lookAt(worldMouseX, worldMouseY);
+      this.updateNetworkRemotePlayers(dt);
       return;
     }
+
+    this.updateNetworkRemotePlayers(dt);
 
     // 플레이어가 죽었으면 대부분의 행동 불가
     if (!this.localPlayer.isAlive) {
