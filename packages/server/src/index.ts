@@ -12,7 +12,7 @@ import {
   type SnapshotPayload,
 } from '@battle-royal/shared';
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT ?? 3000);
 const ROOM_TARGET_PLAYERS = 20;
 const ROOM_CODE_LENGTH = 6;
 const BOT_CHASE_RANGE = 360;
