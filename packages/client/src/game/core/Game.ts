@@ -212,8 +212,10 @@ export class Game {
       const remoteId = `net-${snapshotPlayer.id}`;
       activeRemoteIds.add(remoteId);
       this.networkRemotePlayerIds.add(remoteId);
+      const isServerBot = snapshotPlayer.id.startsWith('bot-');
 
       let player = this.players.get(remoteId);
+      const existed = Boolean(player);
 
       if (!player) {
         player = new Player(remoteId, snapshotPlayer.x, snapshotPlayer.y, false);
@@ -228,8 +230,13 @@ export class Game {
       player.x = snapshotPlayer.x;
       player.y = snapshotPlayer.y;
       player.rotation = snapshotPlayer.rotation;
-      player.hp = snapshotPlayer.hp;
-      player.isAlive = snapshotPlayer.isAlive;
+
+      // 멀티에서 봇 데미지는 현재 클라이언트 시뮬레이션 기준으로 유지.
+      // 서버 스냅샷 hp를 매틱 덮어쓰면 맞아도 즉시 풀피로 복구되어 보임.
+      if (!isServerBot || !existed) {
+        player.hp = snapshotPlayer.hp;
+        player.isAlive = snapshotPlayer.isAlive;
+      }
     }
 
     for (const playerId of this.networkRemotePlayerIds) {
