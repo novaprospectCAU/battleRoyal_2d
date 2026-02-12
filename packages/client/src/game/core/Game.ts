@@ -215,6 +215,11 @@ export class Game {
 
     for (const snapshotPlayer of snapshot.players) {
       if (snapshotPlayer.id === this.localServerPlayerId) {
+        // 로컬 플레이어의 생존/체력은 서버 권위 상태를 반영
+        this.localPlayer.name = snapshotPlayer.name;
+        this.localPlayer.hp = snapshotPlayer.hp;
+        this.localPlayer.isAlive = snapshotPlayer.isAlive;
+        this.localPlayer.rotation = snapshotPlayer.rotation;
         continue;
       }
 
@@ -277,6 +282,11 @@ export class Game {
       const player = this.players.get(playerId);
       const target = this.networkRemoteTargets.get(playerId);
       if (!player || !target) continue;
+
+      // 죽은 원격 엔티티는 시체 위치에 고정 (이동 보간 금지)
+      if (!player.isAlive) {
+        continue;
+      }
 
       player.x += (target.x - player.x) * smoothing;
       player.y += (target.y - player.y) * smoothing;
