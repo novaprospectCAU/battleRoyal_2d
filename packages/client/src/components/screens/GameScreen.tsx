@@ -29,7 +29,7 @@ export function GameScreen({ onBack, mode }: GameScreenProps) {
     if (!canvas) return;
 
     // 게임 인스턴스 생성
-    const game = new Game(canvas);
+    const game = new Game(canvas, { multiplayer: mode === 'multiplayer' });
     gameRef.current = game;
 
     // 게임 시작
@@ -40,7 +40,7 @@ export function GameScreen({ onBack, mode }: GameScreenProps) {
       game.destroy();
       gameRef.current = null;
     };
-  }, []);
+  }, [mode]);
 
   // 캔버스 리사이즈 핸들링
   useEffect(() => {
@@ -65,10 +65,14 @@ export function GameScreen({ onBack, mode }: GameScreenProps) {
     const url = import.meta.env.VITE_SERVER_URL ?? 'ws://localhost:3000';
     const networkClient = new NetworkClient(url, {
       onStateChange: setNetworkState,
-      onWelcome: (id) => setPlayerId(id),
+      onWelcome: (id) => {
+        setPlayerId(id);
+        gameRef.current?.setLocalServerPlayer(id);
+      },
       onSnapshot: (snapshot) => {
         setServerTick(snapshot.serverTick);
         setOnlineCount(snapshot.players.length);
+        gameRef.current?.applyMultiplayerSnapshot(snapshot);
       },
     });
     networkRef.current = networkClient;

@@ -28,6 +28,7 @@ import {
   ARMOR_ITEMS,
   ARMOR_TIERS,
   ARMOR_TIER_WEIGHTS,
+  type SnapshotPayload,
   type WeaponDef,
   type FireMode,
   type UsableItemDef,
@@ -127,9 +128,12 @@ export class Game {
   // 캐시된 캔버스 크기 (매 프레임 getBoundingClientRect 방지)
   private canvasWidth = 0;
   private canvasHeight = 0;
+  private readonly isMultiplayerMode: boolean;
+  private localServerPlayerId: string | null = null;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, options: { multiplayer?: boolean } = {}) {
     this.canvas = canvas;
+    this.isMultiplayerMode = options.multiplayer ?? false;
 
     // 캔버스 초기화
     this.setupCanvas();
@@ -174,8 +178,74 @@ export class Game {
     // 바닥 아이템 생성
     this.generateGroundItems();
 
-    // 테스트용 AI 봇 생성
-    this.spawnTestEnemies(19);
+    if (!this.isMultiplayerMode) {
+      // 테스트용 AI 봇 생성
+      this.spawnTestEnemies(19);
+    } else {
+      this.totalPlayerCount = this.players.size;
+    }
+  }
+
+  /** 멀티플레이 로컬 플레이어 식별 */
+  setLocalServerPlayer(playerId: string): void {
+    this.localServerPlayerId = playerId;
+
+    if (this.localPlayer.id === playerId) {
+      return;
+    }
+
+    let local = this.players.get(playerId);
+    if (!local) {
+      local = new Player(playerId, this.localPlayer.x, this.localPlayer.y, true);
+      this.players.set(playerId, local);
+    }
+
+    this.localPlayer.isLocalPlayer = false;
+    local.isLocalPlayer = true;
+    this.localPlayer = local;
+    this.camera.follow(this.localPlayer);
+    this.totalPlayerCount = this.players.size;
+  }
+
+  /** 서버 스냅샷 적용 (멀티플레이 전용) */
+  applyMultiplayerSnapshot(snapshot: SnapshotPayload): void {
+    if (!this.isMultiplayerMode) return;
+
+    const activeIds = new Set<string>();
+
+    for (const snapshotPlayer of snapshot.players) {
+      activeIds.add(snapshotPlayer.id);
+      const isLocal = snapshotPlayer.id === this.localServerPlayerId;
+      let player = this.players.get(snapshotPlayer.id);
+
+      if (!player) {
+        player = new Player(snapshotPlayer.id, snapshotPlayer.x, snapshotPlayer.y, isLocal);
+        this.players.set(snapshotPlayer.id, player);
+      }
+
+      player.isLocalPlayer = isLocal;
+      player.name = snapshotPlayer.name;
+      player.setMovement(0, 0);
+      player.update(0);
+      player.x = snapshotPlayer.x;
+      player.y = snapshotPlayer.y;
+      player.rotation = snapshotPlayer.rotation;
+      player.hp = snapshotPlayer.hp;
+      player.isAlive = snapshotPlayer.isAlive;
+
+      if (isLocal) {
+        this.localPlayer = player;
+      }
+    }
+
+    for (const [playerId] of this.players) {
+      if (playerId === this.localPlayer.id) continue;
+      if (activeIds.has(playerId)) continue;
+      this.players.delete(playerId);
+    }
+
+    this.totalPlayerCount = snapshot.players.length;
+    this.camera.follow(this.localPlayer);
   }
 
   /** 테스트용 AI 봇 생성 */
@@ -538,6 +608,13 @@ export class Game {
 
     // 입력 처리
     const input = this.inputManager.getInput();
+
+    if (this.isMultiplayerMode) {
+      const worldMouseX = input.mouseX + this.camera.x;
+      const worldMouseY = input.mouseY + this.camera.y;
+      this.localPlayer.lookAt(worldMouseX, worldMouseY);
+      return;
+    }
     
     // 플레이어가 죽었으면 대부분의 행동 불가
     if (!this.localPlayer.isAlive) {
