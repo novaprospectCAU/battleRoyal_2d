@@ -156,12 +156,8 @@ function isSnapshotPayload(payload: unknown): payload is SnapshotPayload {
     typeof value.lastProcessedSeq === 'number' &&
     typeof value.roomCode === 'string' &&
     isGamePhase(value.phase) &&
-    typeof value.worldSeed === 'number' &&
     typeof value.humanCount === 'number' &&
     typeof value.botCount === 'number' &&
-    typeof value.zone === 'object' &&
-    value.zone !== null &&
-    Array.isArray(value.botShots) &&
     Array.isArray(value.players)
   );
 }

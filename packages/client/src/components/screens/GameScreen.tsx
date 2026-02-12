@@ -102,7 +102,9 @@ export function GameScreen({ onBack, mode, multiplayer }: GameScreenProps) {
         setRoomCode(snapshot.roomCode);
         setPhase(snapshot.phase);
         gameRef.current?.setMultiplayerPhase(snapshot.phase);
-        gameRef.current?.setMultiplayerWorldSeed(snapshot.worldSeed);
+        if (typeof snapshot.worldSeed === 'number') {
+          gameRef.current?.setMultiplayerWorldSeed(snapshot.worldSeed);
+        }
         setHumanCount(snapshot.humanCount);
         setBotCount(snapshot.botCount);
         setTargetPlayers(snapshot.targetPlayers);

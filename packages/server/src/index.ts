@@ -220,7 +220,7 @@ function handleMessage(session: Session, message: NetworkMessage): void {
         break;
       }
       if (room.phase !== 'waiting') {
-        sendError(session, 'ALREADY_STARTED', 'Game already started');
+        // 중복 시작 요청은 에러로 취급하지 않고 무시 (idempotent)
         break;
       }
       room.phase = 'playing';

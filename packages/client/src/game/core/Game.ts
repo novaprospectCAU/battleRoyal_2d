@@ -225,16 +225,32 @@ export class Game {
   applyMultiplayerSnapshot(snapshot: SnapshotPayload): void {
     if (!this.isMultiplayerMode) return;
 
-    this.zone.syncFromNetwork(snapshot.zone);
+    const maybeZone = (snapshot as unknown as { zone?: unknown }).zone;
+    if (maybeZone && typeof maybeZone === 'object') {
+      this.zone.syncFromNetwork(maybeZone as SnapshotPayload['zone']);
+    }
     const now = performance.now();
-    for (const shot of snapshot.botShots) {
-      this.botShotTracers.push({
-        fromX: shot.fromX,
-        fromY: shot.fromY,
-        toX: shot.toX,
-        toY: shot.toY,
-        time: now,
-      });
+    const botShots = (snapshot as unknown as { botShots?: unknown }).botShots;
+    if (Array.isArray(botShots)) {
+      for (const rawShot of botShots) {
+        if (typeof rawShot !== 'object' || rawShot === null) continue;
+        const shot = rawShot as { fromX?: unknown; fromY?: unknown; toX?: unknown; toY?: unknown };
+        if (
+          typeof shot.fromX !== 'number' ||
+          typeof shot.fromY !== 'number' ||
+          typeof shot.toX !== 'number' ||
+          typeof shot.toY !== 'number'
+        ) {
+          continue;
+        }
+        this.botShotTracers.push({
+          fromX: shot.fromX,
+          fromY: shot.fromY,
+          toX: shot.toX,
+          toY: shot.toY,
+          time: now,
+        });
+      }
     }
     const activeRemoteIds = new Set<string>();
 
