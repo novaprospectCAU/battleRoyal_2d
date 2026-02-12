@@ -328,13 +328,22 @@ export class Game {
       const dx = this.localServerTarget.x - this.localPlayer.x;
       const dy = this.localServerTarget.y - this.localPlayer.y;
       const distSq = dx * dx + dy * dy;
+      const nearWall = !this.tileMap.isCircleWalkable(
+        this.localPlayer.x,
+        this.localPlayer.y,
+        PLAYER_CONFIG.radius + 2
+      );
 
       // 작은 오차는 무시해 밀리는 느낌을 줄이고, 큰 오차만 보정
       if (distSq <= 20 * 20) {
         // noop
+      } else if (nearWall && distSq <= 180 * 180) {
+        // 벽 근처에서는 미세 보정으로 인한 들러붙음을 막기 위해 중간 오차 보정 생략
       } else {
         const dist = Math.sqrt(distSq);
-        const correction = dist > 120 ? 48 : Math.max(4, dist * Math.min(0.18, smoothing));
+        const correction = nearWall
+          ? Math.min(10, Math.max(2, dist * 0.06))
+          : (dist > 120 ? 48 : Math.max(4, dist * Math.min(0.18, smoothing)));
         const nx = dx / (dist || 1);
         const ny = dy / (dist || 1);
         this.localPlayer.x += nx * correction;
