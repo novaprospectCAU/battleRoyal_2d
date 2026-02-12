@@ -131,6 +131,7 @@ export class Game {
   private readonly isMultiplayerMode: boolean;
   private localServerPlayerId: string | null = null;
   private networkRemotePlayerIds: Set<string> = new Set();
+  private multiplayerPhase: 'waiting' | 'countdown' | 'playing' | 'ended' = 'waiting';
 
   constructor(canvas: HTMLCanvasElement, options: { multiplayer?: boolean } = {}) {
     this.canvas = canvas;
@@ -186,6 +187,11 @@ export class Game {
   /** 멀티플레이 로컬 플레이어 식별 */
   setLocalServerPlayer(playerId: string): void {
     this.localServerPlayerId = playerId;
+  }
+
+  /** 멀티플레이 현재 페이즈 반영 */
+  setMultiplayerPhase(phase: 'waiting' | 'countdown' | 'playing' | 'ended'): void {
+    this.multiplayerPhase = phase;
   }
 
   /** 서버 스냅샷 적용 (멀티플레이 전용) */
@@ -598,6 +604,13 @@ export class Game {
 
     // 입력 처리
     const input = this.inputManager.getInput();
+
+    if (this.isMultiplayerMode && this.multiplayerPhase !== 'playing') {
+      const worldMouseX = input.mouseX + this.camera.x;
+      const worldMouseY = input.mouseY + this.camera.y;
+      this.localPlayer.lookAt(worldMouseX, worldMouseY);
+      return;
+    }
 
     // 플레이어가 죽었으면 대부분의 행동 불가
     if (!this.localPlayer.isAlive) {

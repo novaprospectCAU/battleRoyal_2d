@@ -90,6 +90,7 @@ export function GameScreen({ onBack, mode, multiplayer }: GameScreenProps) {
         setRoomCode(payload.inviteCode);
         setIsHost(payload.isHost);
         setPhase(payload.phase);
+        gameRef.current?.setMultiplayerPhase(payload.phase);
         setHumanCount(payload.humanCount);
         setBotCount(payload.botCount);
         setTargetPlayers(payload.targetPlayers);
@@ -99,6 +100,7 @@ export function GameScreen({ onBack, mode, multiplayer }: GameScreenProps) {
         setServerTick(snapshot.serverTick);
         setRoomCode(snapshot.roomCode);
         setPhase(snapshot.phase);
+        gameRef.current?.setMultiplayerPhase(snapshot.phase);
         setHumanCount(snapshot.humanCount);
         setBotCount(snapshot.botCount);
         setTargetPlayers(snapshot.targetPlayers);
