@@ -140,6 +140,7 @@ export class Game {
     isBot: boolean;
     name: string;
   }> = new Map();
+  private localServerTarget: { x: number; y: number; hp: number; isAlive: boolean } | null = null;
   private multiplayerPhase: 'waiting' | 'countdown' | 'playing' | 'ended' = 'waiting';
 
   constructor(canvas: HTMLCanvasElement, options: { multiplayer?: boolean } = {}) {
@@ -219,7 +220,12 @@ export class Game {
         this.localPlayer.name = snapshotPlayer.name;
         this.localPlayer.hp = snapshotPlayer.hp;
         this.localPlayer.isAlive = snapshotPlayer.isAlive;
-        this.localPlayer.rotation = snapshotPlayer.rotation;
+        this.localServerTarget = {
+          x: snapshotPlayer.x,
+          y: snapshotPlayer.y,
+          hp: snapshotPlayer.hp,
+          isAlive: snapshotPlayer.isAlive,
+        };
         continue;
       }
 
@@ -277,6 +283,23 @@ export class Game {
   private updateNetworkRemotePlayers(dt: number): void {
     if (!this.isMultiplayerMode) return;
     const smoothing = 1 - Math.exp(-dt / 90);
+
+    if (this.localServerTarget) {
+      const dx = this.localServerTarget.x - this.localPlayer.x;
+      const dy = this.localServerTarget.y - this.localPlayer.y;
+      const distSq = dx * dx + dy * dy;
+
+      // 큰 오차는 즉시 보정, 작은 오차는 부드럽게 수렴
+      if (distSq > 64 * 64) {
+        this.localPlayer.x = this.localServerTarget.x;
+        this.localPlayer.y = this.localServerTarget.y;
+      } else {
+        this.localPlayer.x += dx * smoothing;
+        this.localPlayer.y += dy * smoothing;
+      }
+      this.localPlayer.hp = this.localServerTarget.hp;
+      this.localPlayer.isAlive = this.localServerTarget.isAlive;
+    }
 
     for (const playerId of this.networkRemotePlayerIds) {
       const player = this.players.get(playerId);
