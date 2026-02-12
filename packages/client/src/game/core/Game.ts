@@ -28,6 +28,7 @@ import {
   ARMOR_ITEMS,
   ARMOR_TIERS,
   ARMOR_TIER_WEIGHTS,
+  type SnapshotPayload,
   type WeaponDef,
   type FireMode,
   type UsableItemDef,
@@ -127,9 +128,23 @@ export class Game {
   // 캐시된 캔버스 크기 (매 프레임 getBoundingClientRect 방지)
   private canvasWidth = 0;
   private canvasHeight = 0;
+  private readonly isMultiplayerMode: boolean;
+  private localServerPlayerId: string | null = null;
+  private networkRemotePlayerIds: Set<string> = new Set();
+  private networkRemoteTargets: Map<string, {
+    x: number;
+    y: number;
+    rotation: number;
+    hp: number;
+    isAlive: boolean;
+    isBot: boolean;
+    name: string;
+  }> = new Map();
+  private multiplayerPhase: 'waiting' | 'countdown' | 'playing' | 'ended' = 'waiting';
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, options: { multiplayer?: boolean } = {}) {
     this.canvas = canvas;
+    this.isMultiplayerMode = options.multiplayer ?? false;
 
     // 캔버스 초기화
     this.setupCanvas();
@@ -174,8 +189,109 @@ export class Game {
     // 바닥 아이템 생성
     this.generateGroundItems();
 
-    // 테스트용 AI 봇 생성
-    this.spawnTestEnemies(19);
+    if (!this.isMultiplayerMode) {
+      // 테스트용 AI 봇 생성
+      this.spawnTestEnemies(19);
+    } else {
+      this.totalPlayerCount = this.players.size;
+    }
+  }
+
+  /** 멀티플레이 로컬 플레이어 식별 */
+  setLocalServerPlayer(playerId: string): void {
+    this.localServerPlayerId = playerId;
+  }
+
+  /** 멀티플레이 현재 페이즈 반영 */
+  setMultiplayerPhase(phase: 'waiting' | 'countdown' | 'playing' | 'ended'): void {
+    this.multiplayerPhase = phase;
+  }
+
+  /** 서버 스냅샷 적용 (멀티플레이 전용) */
+  applyMultiplayerSnapshot(snapshot: SnapshotPayload): void {
+    if (!this.isMultiplayerMode) return;
+
+    const activeRemoteIds = new Set<string>();
+
+    for (const snapshotPlayer of snapshot.players) {
+      if (snapshotPlayer.id === this.localServerPlayerId) {
+        continue;
+      }
+
+      const remoteId = `net-${snapshotPlayer.id}`;
+      activeRemoteIds.add(remoteId);
+      this.networkRemotePlayerIds.add(remoteId);
+      const isServerBot = snapshotPlayer.id.startsWith('bot-');
+
+      let player = this.players.get(remoteId);
+      const existed = Boolean(player);
+
+      if (!player) {
+        player = new Player(remoteId, snapshotPlayer.x, snapshotPlayer.y, false);
+        this.players.set(remoteId, player);
+      }
+
+      player.isLocalPlayer = false;
+      player.isBot = snapshotPlayer.id.startsWith('bot-');
+      player.name = snapshotPlayer.name;
+      player.setMovement(0, 0);
+      if (!existed) {
+        player.update(0);
+        player.x = snapshotPlayer.x;
+        player.y = snapshotPlayer.y;
+        player.rotation = snapshotPlayer.rotation;
+      }
+
+      this.networkRemoteTargets.set(remoteId, {
+        x: snapshotPlayer.x,
+        y: snapshotPlayer.y,
+        rotation: snapshotPlayer.rotation,
+        hp: snapshotPlayer.hp,
+        isAlive: snapshotPlayer.isAlive,
+        isBot: isServerBot,
+        name: snapshotPlayer.name,
+      });
+
+      // 멀티에서 봇 데미지는 현재 클라이언트 시뮬레이션 기준으로 유지.
+      // 서버 스냅샷 hp를 매틱 덮어쓰면 맞아도 즉시 풀피로 복구되어 보임.
+      if (!isServerBot || !existed) {
+        player.hp = snapshotPlayer.hp;
+        player.isAlive = snapshotPlayer.isAlive;
+      }
+    }
+
+    for (const playerId of this.networkRemotePlayerIds) {
+      if (activeRemoteIds.has(playerId)) continue;
+      this.players.delete(playerId);
+      this.networkRemotePlayerIds.delete(playerId);
+      this.networkRemoteTargets.delete(playerId);
+    }
+  }
+
+  /** 원격 플레이어 스냅샷 보간 */
+  private updateNetworkRemotePlayers(dt: number): void {
+    if (!this.isMultiplayerMode) return;
+    const smoothing = 1 - Math.exp(-dt / 90);
+
+    for (const playerId of this.networkRemotePlayerIds) {
+      const player = this.players.get(playerId);
+      const target = this.networkRemoteTargets.get(playerId);
+      if (!player || !target) continue;
+
+      player.x += (target.x - player.x) * smoothing;
+      player.y += (target.y - player.y) * smoothing;
+
+      let diff = target.rotation - player.rotation;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      player.rotation += diff * smoothing;
+
+      // 봇은 클라이언트 로컬 전투 결과를 유지하고, 유저만 서버 상태를 신뢰
+      if (!target.isBot) {
+        player.hp = target.hp;
+        player.isAlive = target.isAlive;
+      }
+    }
   }
 
   /** 테스트용 AI 봇 생성 */
@@ -263,6 +379,12 @@ export class Game {
   /** FPS 가져오기 */
   getFps(): number {
     return this.currentFps;
+  }
+
+  /** 화면 좌표 기준 조준 각도 계산 (멀티 입력 전송용) */
+  getAimRotationFromScreen(screenX: number, screenY: number): number {
+    const world = this.camera.screenToWorld(screenX, screenY);
+    return Math.atan2(world.y - this.localPlayer.y, world.x - this.localPlayer.x);
   }
 
   /** 현재 무기 가져오기 (무기 슬롯일 때만) */
@@ -538,7 +660,17 @@ export class Game {
 
     // 입력 처리
     const input = this.inputManager.getInput();
-    
+
+    if (this.isMultiplayerMode && this.multiplayerPhase !== 'playing') {
+      const worldMouseX = input.mouseX + this.camera.x;
+      const worldMouseY = input.mouseY + this.camera.y;
+      this.localPlayer.lookAt(worldMouseX, worldMouseY);
+      this.updateNetworkRemotePlayers(dt);
+      return;
+    }
+
+    this.updateNetworkRemotePlayers(dt);
+
     // 플레이어가 죽었으면 대부분의 행동 불가
     if (!this.localPlayer.isAlive) {
       // 죽은 상태에서도 카메라 조준은 가능

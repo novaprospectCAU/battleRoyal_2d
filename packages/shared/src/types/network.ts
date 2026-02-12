@@ -16,7 +16,16 @@ export type MessageType =
   | 'GAME_END'
   | 'PLAYER_DAMAGE'
   | 'PLAYER_DEATH'
-  | 'ZONE_UPDATE';
+  | 'ZONE_UPDATE'
+  | 'HELLO'
+  | 'CREATE_ROOM'
+  | 'WELCOME'
+  | 'INPUT'
+  | 'ROOM_JOINED'
+  | 'SNAPSHOT'
+  | 'PING'
+  | 'PONG'
+  | 'ERROR';
 
 /** 기본 메시지 구조 */
 export interface NetworkMessage<T = unknown> {
@@ -57,4 +66,73 @@ export interface GameStatePayload {
     currentRadius: number;
     targetRadius: number;
   };
+}
+
+/** 클라이언트 초기 핸드셰이크 */
+export interface HelloPayload {
+  name: string;
+  version: string;
+}
+
+/** 서버 환영 메시지 */
+export interface WelcomePayload {
+  playerId: string;
+  serverTime: number;
+  tickRate: number;
+}
+
+/** 방 입장 완료 */
+export interface RoomJoinedPayload {
+  roomId: string;
+  inviteCode: string;
+  playerId: string;
+  isHost: boolean;
+  phase: GamePhase;
+  targetPlayers: number;
+  humanCount: number;
+  botCount: number;
+}
+
+/** 클라이언트 입력 */
+export interface InputPayload {
+  seq: number;
+  moveX: number;
+  moveY: number;
+  rotation: number;
+  fire: boolean;
+  reload: boolean;
+}
+
+/** 스냅샷 내 플레이어 상태 */
+export interface SnapshotPlayer {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  rotation: number;
+  hp: number;
+  isAlive: boolean;
+}
+
+/** 서버 스냅샷 */
+export interface SnapshotPayload {
+  serverTick: number;
+  lastProcessedSeq: number;
+  roomCode: string;
+  phase: GamePhase;
+  targetPlayers: number;
+  humanCount: number;
+  botCount: number;
+  players: SnapshotPlayer[];
+}
+
+/** RTT 측정 */
+export interface PingPayload {
+  clientTime: number;
+}
+
+/** 에러 응답 */
+export interface ErrorPayload {
+  code: string;
+  message: string;
 }

@@ -58,6 +58,7 @@ battleRoyal_2d/
 - `guideBook.md` - 문서 안내
 - `ruleBook.md` - 게임 규칙
 - `specBook.md` - 기술 스펙
+- `DEPLOYMENT.md` - 배포 가이드 (Vercel + Render)
 
 ## 📝 개발 현황
 
