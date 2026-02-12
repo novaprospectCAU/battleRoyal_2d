@@ -3,6 +3,8 @@ import {
   DEFAULT_GAME_CONFIG,
   PLAYER_CONFIG,
   TICK_INTERVAL,
+  ZONE_CONFIG,
+  ZONE_PHASES,
   createMessage,
   parseMessage,
   serializeMessage,
@@ -10,6 +12,7 @@ import {
   type InputPayload,
   type NetworkMessage,
   type SnapshotPayload,
+  type SnapshotZonePayload,
 } from '@battle-royal/shared';
 
 const PORT = Number(process.env.PORT ?? 3000);
@@ -52,9 +55,27 @@ type Room = {
   code: string;
   hostId: string;
   phase: GamePhase;
+  worldSeed: number;
+  zone: ServerZoneState;
   humans: Set<string>;
   bots: BotState[];
   tick: number;
+};
+
+type ServerZoneState = {
+  currentPhase: number;
+  state: 'waiting' | 'shrinking' | 'finished';
+  phaseElapsedMs: number;
+  damagePerSecond: number;
+  currentCenterX: number;
+  currentCenterY: number;
+  currentRadius: number;
+  targetCenterX: number;
+  targetCenterY: number;
+  targetRadius: number;
+  startCenterX: number;
+  startCenterY: number;
+  startRadius: number;
 };
 
 const sessions = new Map<string, Session>();
@@ -233,10 +254,13 @@ function handleMessage(session: Session, message: NetworkMessage): void {
 
 function createRoom(host: Session): Room {
   const code = generateRoomCode();
+  const worldSeed = Math.floor(Math.random() * 0x7fffffff);
   const room: Room = {
     code,
     hostId: host.id,
     phase: 'waiting',
+    worldSeed,
+    zone: createInitialZoneState(),
     humans: new Set([host.id]),
     bots: [],
     tick: 0,
@@ -290,6 +314,7 @@ function sendRoomJoined(session: Session, room: Room): void {
     playerId: session.id,
     isHost: room.hostId === session.id,
     phase: room.phase,
+    worldSeed: room.worldSeed,
     targetPlayers: ROOM_TARGET_PLAYERS,
     humanCount: room.humans.size,
     botCount: room.bots.length,
@@ -323,6 +348,8 @@ function stepRoomSimulation(room: Room, dtMs: number): void {
   }
 
   updateBots(room, dtSec);
+  updateZone(room.zone, dtMs);
+  applyZoneDamage(room, dtSec);
 }
 
 function updateBots(room: Room, dtSec: number): void {
@@ -439,6 +466,144 @@ function createBot(room: Room): BotState {
   };
 }
 
+function createInitialZoneState(): ServerZoneState {
+  const centerX = DEFAULT_GAME_CONFIG.mapWidth / 2;
+  const centerY = DEFAULT_GAME_CONFIG.mapHeight / 2;
+  const radius = Math.max(DEFAULT_GAME_CONFIG.mapWidth, DEFAULT_GAME_CONFIG.mapHeight) * ZONE_CONFIG.initialSizeRatio;
+
+  const zone: ServerZoneState = {
+    currentPhase: 0,
+    state: 'waiting',
+    phaseElapsedMs: 0,
+    damagePerSecond: ZONE_PHASES[0]?.damagePerSecond ?? 0,
+    currentCenterX: centerX,
+    currentCenterY: centerY,
+    currentRadius: radius,
+    targetCenterX: centerX,
+    targetCenterY: centerY,
+    targetRadius: radius,
+    startCenterX: centerX,
+    startCenterY: centerY,
+    startRadius: radius,
+  };
+
+  configureZoneTarget(zone, 0);
+  return zone;
+}
+
+function configureZoneTarget(zone: ServerZoneState, phaseIndex: number): void {
+  if (phaseIndex >= ZONE_PHASES.length) {
+    zone.state = 'finished';
+    return;
+  }
+
+  zone.currentPhase = phaseIndex;
+  zone.state = 'waiting';
+  zone.phaseElapsedMs = 0;
+  zone.damagePerSecond = ZONE_PHASES[phaseIndex].damagePerSecond;
+
+  const baseRadius = Math.max(DEFAULT_GAME_CONFIG.mapWidth, DEFAULT_GAME_CONFIG.mapHeight);
+  const newRadius = baseRadius * ZONE_PHASES[phaseIndex].sizeRatio;
+  const maxOffset = Math.max(0, zone.currentRadius - newRadius);
+  const angle = Math.random() * Math.PI * 2;
+  const distance = Math.random() * maxOffset * 0.7;
+
+  let newCenterX = zone.currentCenterX + Math.cos(angle) * distance;
+  let newCenterY = zone.currentCenterY + Math.sin(angle) * distance;
+  newCenterX = clamp(newCenterX, newRadius, DEFAULT_GAME_CONFIG.mapWidth - newRadius);
+  newCenterY = clamp(newCenterY, newRadius, DEFAULT_GAME_CONFIG.mapHeight - newRadius);
+
+  zone.targetCenterX = newCenterX;
+  zone.targetCenterY = newCenterY;
+  zone.targetRadius = newRadius;
+}
+
+function updateZone(zone: ServerZoneState, dtMs: number): void {
+  if (zone.state === 'finished') return;
+
+  zone.phaseElapsedMs += dtMs;
+  const phase = ZONE_PHASES[zone.currentPhase];
+  if (!phase) return;
+
+  if (zone.state === 'waiting') {
+    if (zone.phaseElapsedMs >= phase.waitTime) {
+      zone.state = 'shrinking';
+      zone.phaseElapsedMs = 0;
+      zone.startCenterX = zone.currentCenterX;
+      zone.startCenterY = zone.currentCenterY;
+      zone.startRadius = zone.currentRadius;
+    }
+    return;
+  }
+
+  const progress = Math.min(1, zone.phaseElapsedMs / phase.shrinkTime);
+  zone.currentCenterX = zone.startCenterX + (zone.targetCenterX - zone.startCenterX) * progress;
+  zone.currentCenterY = zone.startCenterY + (zone.targetCenterY - zone.startCenterY) * progress;
+  zone.currentRadius = zone.startRadius + (zone.targetRadius - zone.startRadius) * progress;
+
+  if (progress >= 1) {
+    zone.currentCenterX = zone.targetCenterX;
+    zone.currentCenterY = zone.targetCenterY;
+    zone.currentRadius = zone.targetRadius;
+    configureZoneTarget(zone, zone.currentPhase + 1);
+  }
+}
+
+function applyZoneDamage(room: Room, dtSec: number): void {
+  const dps = room.zone.damagePerSecond;
+  if (dps <= 0 || room.zone.state === 'finished') return;
+  const damage = dps * dtSec;
+
+  for (const humanId of room.humans) {
+    const session = sessions.get(humanId);
+    if (!session || !session.isAlive) continue;
+    if (isSafe(room.zone, session.x, session.y)) continue;
+    session.hp = Math.max(0, session.hp - damage);
+    if (session.hp <= 0) {
+      session.isAlive = false;
+      session.input = emptyInput();
+    }
+  }
+
+  for (const bot of room.bots) {
+    if (!bot.isAlive) continue;
+    if (isSafe(room.zone, bot.x, bot.y)) continue;
+    bot.hp = Math.max(0, bot.hp - damage);
+    if (bot.hp <= 0) {
+      bot.isAlive = false;
+    }
+  }
+}
+
+function isSafe(zone: ServerZoneState, x: number, y: number): boolean {
+  const dx = x - zone.currentCenterX;
+  const dy = y - zone.currentCenterY;
+  return dx * dx + dy * dy <= zone.currentRadius * zone.currentRadius;
+}
+
+function toSnapshotZone(zone: ServerZoneState): SnapshotZonePayload {
+  const phase = ZONE_PHASES[zone.currentPhase];
+  const total = zone.state === 'waiting' ? (phase?.waitTime ?? 0) : (phase?.shrinkTime ?? 0);
+  const remaining = Math.max(0, total - zone.phaseElapsedMs);
+
+  return {
+    currentPhase: zone.currentPhase,
+    state: zone.state,
+    timeRemaining: remaining,
+    damagePerSecond: zone.damagePerSecond,
+    current: {
+      x: zone.currentCenterX,
+      y: zone.currentCenterY,
+      radius: zone.currentRadius,
+    },
+    target: {
+      x: zone.targetCenterX,
+      y: zone.targetCenterY,
+      radius: zone.targetRadius,
+    },
+  };
+}
+
 function broadcastSnapshot(room: Room): void {
   const players = [
     ...Array.from(room.humans)
@@ -472,9 +637,11 @@ function broadcastSnapshot(room: Room): void {
     ),
     roomCode: room.code,
     phase: room.phase,
+    worldSeed: room.worldSeed,
     targetPlayers: ROOM_TARGET_PLAYERS,
     humanCount: room.humans.size,
     botCount: room.bots.length,
+    zone: toSnapshotZone(room.zone),
     players,
   };
 

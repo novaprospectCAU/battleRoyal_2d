@@ -1,4 +1,5 @@
 import { ZONE_PHASES, ZONE_CONFIG, type ZonePhase } from '@battle-royal/shared';
+import type { SnapshotZonePayload } from '@battle-royal/shared';
 
 /** 자기장 상태 */
 export type ZoneState = 'waiting' | 'shrinking' | 'finished';
@@ -34,6 +35,7 @@ export class Zone {
   
   // 현재 데미지
   private damagePerSecond = 0;
+  private networkTimeRemainingMs: number | null = null;
 
   constructor(mapWidth: number, mapHeight: number) {
     this.mapWidth = mapWidth;
@@ -115,6 +117,7 @@ export class Zone {
 
   /** 업데이트 */
   update(): void {
+    this.networkTimeRemainingMs = null;
     if (this.state === 'finished') return;
     
     const now = performance.now();
@@ -144,6 +147,26 @@ export class Zone {
         this.startPhase(this.currentPhase + 1);
       }
     }
+  }
+
+  /** 서버 권위 자기장 상태 동기화 (멀티플레이) */
+  syncFromNetwork(snapshot: SnapshotZonePayload): void {
+    this.currentPhase = snapshot.currentPhase;
+    this.state = snapshot.state;
+    this.currentCenterX = snapshot.current.x;
+    this.currentCenterY = snapshot.current.y;
+    this.currentRadius = snapshot.current.radius;
+    this.targetCenterX = snapshot.target.x;
+    this.targetCenterY = snapshot.target.y;
+    this.targetRadius = snapshot.target.radius;
+    this.damagePerSecond = snapshot.damagePerSecond;
+    this.networkTimeRemainingMs = Math.max(0, snapshot.timeRemaining);
+  }
+
+  /** 서버 동기화 타이머 감소 */
+  tickNetworkTime(dt: number): void {
+    if (this.networkTimeRemainingMs === null) return;
+    this.networkTimeRemainingMs = Math.max(0, this.networkTimeRemainingMs - dt);
   }
 
   /** 위치가 안전 구역 안인지 체크 */
@@ -189,6 +212,9 @@ export class Zone {
 
   /** 다음 상태까지 남은 시간 (ms) */
   getTimeRemaining(): number {
+    if (this.networkTimeRemainingMs !== null) {
+      return this.networkTimeRemainingMs;
+    }
     if (this.state === 'finished') return 0;
     
     const phase = ZONE_PHASES[this.currentPhase];

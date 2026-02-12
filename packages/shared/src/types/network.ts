@@ -88,9 +88,27 @@ export interface RoomJoinedPayload {
   playerId: string;
   isHost: boolean;
   phase: GamePhase;
+  worldSeed: number;
   targetPlayers: number;
   humanCount: number;
   botCount: number;
+}
+
+export interface SnapshotZonePayload {
+  currentPhase: number;
+  state: 'waiting' | 'shrinking' | 'finished';
+  timeRemaining: number;
+  damagePerSecond: number;
+  current: {
+    x: number;
+    y: number;
+    radius: number;
+  };
+  target: {
+    x: number;
+    y: number;
+    radius: number;
+  };
 }
 
 /** 클라이언트 입력 */
@@ -120,9 +138,11 @@ export interface SnapshotPayload {
   lastProcessedSeq: number;
   roomCode: string;
   phase: GamePhase;
+  worldSeed: number;
   targetPlayers: number;
   humanCount: number;
   botCount: number;
+  zone: SnapshotZonePayload;
   players: SnapshotPlayer[];
 }
 

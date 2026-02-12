@@ -142,6 +142,8 @@ export class Game {
   }> = new Map();
   private localServerTarget: { x: number; y: number; hp: number; isAlive: boolean } | null = null;
   private multiplayerPhase: 'waiting' | 'countdown' | 'playing' | 'ended' = 'waiting';
+  private multiplayerWorldSeed: number | null = null;
+  private worldRandom: () => number = Math.random;
 
   constructor(canvas: HTMLCanvasElement, options: { multiplayer?: boolean } = {}) {
     this.canvas = canvas;
@@ -208,10 +210,21 @@ export class Game {
     this.multiplayerPhase = phase;
   }
 
+  /** 멀티플레이 월드 시드 반영 (아이템 분포 통일) */
+  setMultiplayerWorldSeed(seed: number): void {
+    if (!this.isMultiplayerMode) return;
+    if (this.multiplayerWorldSeed === seed) return;
+    this.multiplayerWorldSeed = seed;
+    this.worldRandom = mulberry32(seed);
+    this.groundItems = [];
+    this.generateGroundItems();
+  }
+
   /** 서버 스냅샷 적용 (멀티플레이 전용) */
   applyMultiplayerSnapshot(snapshot: SnapshotPayload): void {
     if (!this.isMultiplayerMode) return;
 
+    this.zone.syncFromNetwork(snapshot.zone);
     const activeRemoteIds = new Set<string>();
 
     for (const snapshotPlayer of snapshot.players) {
@@ -698,10 +711,14 @@ export class Game {
       const worldMouseX = input.mouseX + this.camera.x;
       const worldMouseY = input.mouseY + this.camera.y;
       this.localPlayer.lookAt(worldMouseX, worldMouseY);
+      this.zone.tickNetworkTime(dt);
       this.updateNetworkRemotePlayers(dt);
       return;
     }
 
+    if (this.isMultiplayerMode) {
+      this.zone.tickNetworkTime(dt);
+    }
     this.updateNetworkRemotePlayers(dt);
 
     // 플레이어가 죽었으면 대부분의 행동 불가
@@ -722,8 +739,10 @@ export class Game {
       this.updateProjectiles(dt);
       this.updateGrenades(dt);
       this.updateEffects();
-      this.zone.update();
-      this.applyZoneDamage(dt);
+      if (!this.isMultiplayerMode) {
+        this.zone.update();
+        this.applyZoneDamage(dt);
+      }
       return;
     }
 
@@ -761,8 +780,10 @@ export class Game {
         this.updateProjectiles(dt);
         this.updateGrenades(dt);
         this.updateEffects();
-        this.zone.update();
-        this.applyZoneDamage(dt);
+        if (!this.isMultiplayerMode) {
+          this.zone.update();
+          this.applyZoneDamage(dt);
+        }
         return;
       }
     }
@@ -845,10 +866,11 @@ export class Game {
     this.updateEffects();
 
     // 자기장 업데이트
-    this.zone.update();
-
-    // 자기장 밖 데미지 적용
-    this.applyZoneDamage(dt);
+    if (!this.isMultiplayerMode) {
+      this.zone.update();
+      // 자기장 밖 데미지 적용
+      this.applyZoneDamage(dt);
+    }
   }
   
   /** 봇 AI 업데이트 */
@@ -1481,7 +1503,7 @@ export class Game {
           ? ITEM_SPAWN_CONFIG.spawnChance
           : ITEM_SPAWN_CONFIG.spawnChance * ITEM_SPAWN_CONFIG.outdoorMultiplier;
 
-        if (Math.random() > chance) continue;
+        if (this.worldRandom() > chance) continue;
 
         // 가중치 기반 종류 선택
         const kind = this.pickWeightedKind();
@@ -1501,7 +1523,7 @@ export class Game {
           if (kind === 'weapon') {
             const weapon = WEAPONS[groundItem.itemId];
             if (weapon) {
-              const ammoCount = 2 + Math.floor(Math.random() * 3); // 2~4개
+              const ammoCount = 2 + Math.floor(this.worldRandom() * 3); // 2~4개
               for (let a = 0; a < ammoCount; a++) {
                 const ammoPos = this.findNearbyFloor(map, x, y);
                 if (ammoPos && !this.hasAdjacentTile(map, ammoPos.x, ammoPos.y, TileType.DOOR)) {
@@ -1509,7 +1531,7 @@ export class Game {
                   const ay = ammoPos.y * tileSize + tileSize / 2;
                   const range = SPAWN_AMMO_RANGES[weapon.ammoType];
                   const qty = range
-                    ? range[0] + Math.floor(Math.random() * (range[1] - range[0] + 1))
+                    ? range[0] + Math.floor(this.worldRandom() * (range[1] - range[0] + 1))
                     : 15;
                   this.groundItems.push({
                     id: `item-${itemIdCounter++}`,
@@ -1538,7 +1560,7 @@ export class Game {
     const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1]];
     // 셔플
     for (let i = dirs.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(this.worldRandom() * (i + 1));
       [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
     }
     for (const [dx, dy] of dirs) {
@@ -1588,7 +1610,7 @@ export class Game {
   /** 가중치 기반 아이템 종류 선택 */
   private pickWeightedKind(): GroundItemKind {
     const total = SPAWN_WEIGHTS.weapon + SPAWN_WEIGHTS.ammo + SPAWN_WEIGHTS.healing + SPAWN_WEIGHTS.throwable + SPAWN_WEIGHTS.armor;
-    const r = Math.random() * total;
+    const r = this.worldRandom() * total;
     let cum = 0;
     cum += SPAWN_WEIGHTS.weapon;  if (r < cum) return 'weapon';
     cum += SPAWN_WEIGHTS.ammo;    if (r < cum) return 'ammo';
@@ -1601,38 +1623,38 @@ export class Game {
   private createGroundItem(id: string, x: number, y: number, kind: GroundItemKind): GroundItem | null {
     switch (kind) {
       case 'weapon': {
-        const weaponId = SPAWN_WEAPON_POOL[Math.floor(Math.random() * SPAWN_WEAPON_POOL.length)];
+        const weaponId = SPAWN_WEAPON_POOL[Math.floor(this.worldRandom() * SPAWN_WEAPON_POOL.length)];
         return { id, x, y, kind, itemId: weaponId, quantity: 1, isActive: true };
       }
       case 'ammo': {
         let ammoType: string;
         // 근처(96px) 무기가 있으면 70% 확률로 해당 무기 탄약 배치
         const nearbyWeapon = this.findNearbyWeaponAmmoType(x, y, 96);
-        if (nearbyWeapon && Math.random() < 0.7) {
+        if (nearbyWeapon && this.worldRandom() < 0.7) {
           ammoType = nearbyWeapon;
         } else {
           const ammoTypes = Object.keys(SPAWN_AMMO_RANGES);
-          ammoType = ammoTypes[Math.floor(Math.random() * ammoTypes.length)];
+          ammoType = ammoTypes[Math.floor(this.worldRandom() * ammoTypes.length)];
         }
         const range = SPAWN_AMMO_RANGES[ammoType];
         const [min, max] = range ?? [10, 20];
-        const qty = min + Math.floor(Math.random() * (max - min + 1));
+        const qty = min + Math.floor(this.worldRandom() * (max - min + 1));
         return { id, x, y, kind, itemId: ammoType, quantity: qty, isActive: true };
       }
       case 'healing': {
         const items = Object.keys(USABLE_ITEMS);
-        const itemId = items[Math.floor(Math.random() * items.length)];
+        const itemId = items[Math.floor(this.worldRandom() * items.length)];
         return { id, x, y, kind, itemId, quantity: 1, isActive: true };
       }
       case 'throwable': {
         const throwables = Object.keys(THROWABLES);
-        const throwableId = throwables[Math.floor(Math.random() * throwables.length)];
+        const throwableId = throwables[Math.floor(this.worldRandom() * throwables.length)];
         return { id, x, y, kind, itemId: throwableId, quantity: 1, isActive: true };
       }
       case 'armor': {
         const tier = this.pickArmorTier();
         const types: ArmorType[] = ['helmet', 'vest', 'boots'];
-        const armorType = types[Math.floor(Math.random() * types.length)];
+        const armorType = types[Math.floor(this.worldRandom() * types.length)];
         const itemId = `${armorType}_t${tier}`;
         return { id, x, y, kind, itemId, quantity: 1, isActive: true };
       }
@@ -1642,7 +1664,7 @@ export class Game {
   /** 아머 티어 가중치 기반 선택 */
   private pickArmorTier(): 1 | 2 | 3 {
     const total = ARMOR_TIER_WEIGHTS[1] + ARMOR_TIER_WEIGHTS[2] + ARMOR_TIER_WEIGHTS[3];
-    const r = Math.random() * total;
+    const r = this.worldRandom() * total;
     if (r < ARMOR_TIER_WEIGHTS[1]) return 1;
     if (r < ARMOR_TIER_WEIGHTS[1] + ARMOR_TIER_WEIGHTS[2]) return 2;
     return 3;
@@ -2168,4 +2190,14 @@ export class Game {
 
     return (t1 >= 0 && t1 <= 1) || (t2 >= 0 && t2 <= 1) || (t1 < 0 && t2 > 1);
   }
+}
+
+function mulberry32(seed: number): () => number {
+  let t = seed >>> 0;
+  return () => {
+    t += 0x6d2b79f5;
+    let x = Math.imul(t ^ (t >>> 15), 1 | t);
+    x ^= x + Math.imul(x ^ (x >>> 7), 61 | x);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
 }
