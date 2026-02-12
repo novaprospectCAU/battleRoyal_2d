@@ -332,13 +332,14 @@ export class Game {
       // 작은 오차는 무시해 밀리는 느낌을 줄이고, 큰 오차만 보정
       if (distSq <= 20 * 20) {
         // noop
-      } else if (distSq > 120 * 120) {
-        this.localPlayer.x = this.localServerTarget.x;
-        this.localPlayer.y = this.localServerTarget.y;
       } else {
-        const correction = Math.min(0.18, smoothing);
-        this.localPlayer.x += dx * correction;
-        this.localPlayer.y += dy * correction;
+        const dist = Math.sqrt(distSq);
+        const correction = dist > 120 ? 48 : Math.max(4, dist * Math.min(0.18, smoothing));
+        const nx = dx / (dist || 1);
+        const ny = dy / (dist || 1);
+        this.localPlayer.x += nx * correction;
+        this.localPlayer.y += ny * correction;
+        this.handlePlayerCollision(this.localPlayer);
       }
       this.localPlayer.hp = this.localServerTarget.hp;
       this.localPlayer.isAlive = this.localServerTarget.isAlive;
