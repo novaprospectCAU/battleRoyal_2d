@@ -153,7 +153,7 @@ export interface SnapshotPayload {
   botCount: number;
   zone: SnapshotZonePayload;
   botShots: SnapshotBotShot[];
-  openDoors: string[];
+  openDoors?: string[];
   players: SnapshotPlayer[];
 }
 

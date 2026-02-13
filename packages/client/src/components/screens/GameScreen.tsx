@@ -235,6 +235,10 @@ export function GameScreen({ onBack, mode, multiplayer }: GameScreenProps) {
 
   const handleStartGame = () => {
     if (!isHost) return;
+    if (networkState !== 'connected' || !networkRef.current) {
+      setNetworkError('서버 연결 상태를 확인해 주세요.');
+      return;
+    }
     networkRef.current?.startGame();
   };
 
