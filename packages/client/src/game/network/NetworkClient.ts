@@ -158,6 +158,7 @@ function isSnapshotPayload(payload: unknown): payload is SnapshotPayload {
     isGamePhase(value.phase) &&
     typeof value.humanCount === 'number' &&
     typeof value.botCount === 'number' &&
+    Array.isArray(value.openDoors) &&
     Array.isArray(value.players)
   );
 }

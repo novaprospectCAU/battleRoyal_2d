@@ -26,6 +26,10 @@ const BOT_CHASE_RANGE = 360;
 const BOT_ATTACK_RANGE = 220;
 const BOT_ATTACK_DAMAGE = 8;
 const BOT_ATTACK_COOLDOWN_MS = 450;
+const PLAYER_ATTACK_RANGE = 460;
+const PLAYER_ATTACK_DAMAGE = 22;
+const PLAYER_ATTACK_COOLDOWN_MS = 140;
+const PLAYER_ATTACK_ANGLE_RAD = Math.PI / 9;
 const SERVER_MAP = createTestMap();
 
 type Session = {
@@ -40,6 +44,8 @@ type Session = {
   lastInputSeq: number;
   input: InputPayload;
   roomCode: string | null;
+  lastAttackAt: number;
+  lastInteractAt: number;
 };
 
 type BotState = {
@@ -63,6 +69,7 @@ type Room = {
   worldSeed: number;
   zone: ServerZoneState;
   pendingBotShots: { id: string; fromX: number; fromY: number; toX: number; toY: number }[];
+  openDoors: Set<string>;
   humans: Set<string>;
   bots: BotState[];
   tick: number;
@@ -118,6 +125,8 @@ wss.on('connection', (socket, req) => {
     lastInputSeq: 0,
     input: emptyInput(),
     roomCode: null,
+    lastAttackAt: 0,
+    lastInteractAt: 0,
   };
 
   sessions.set(playerId, session);
@@ -268,6 +277,7 @@ function createRoom(host: Session): Room {
     worldSeed,
     zone: createInitialZoneState(),
     pendingBotShots: [],
+    openDoors: new Set<string>(),
     humans: new Set([host.id]),
     bots: [],
     tick: 0,
@@ -348,13 +358,23 @@ function stepRoomSimulation(room: Room, dtMs: number): void {
 
     const nextX = session.x + moveX * PLAYER_CONFIG.moveSpeed * dtSec;
     const nextY = session.y + moveY * PLAYER_CONFIG.moveSpeed * dtSec;
-    const resolved = resolveMoveWithCollision(nextX, nextY, session.x, session.y);
+    const resolved = resolveMoveWithCollision(room, nextX, nextY, session.x, session.y);
     session.x = resolved.x;
     session.y = resolved.y;
     session.rotation = input.rotation;
 
     session.x = clamp(session.x, 0, DEFAULT_GAME_CONFIG.mapWidth);
     session.y = clamp(session.y, 0, DEFAULT_GAME_CONFIG.mapHeight);
+
+    const now = Date.now();
+    if (input.interact && now - session.lastInteractAt >= 180) {
+      session.lastInteractAt = now;
+      toggleNearbyDoor(room, session.x, session.y);
+    }
+    if (input.fire && now - session.lastAttackAt >= PLAYER_ATTACK_COOLDOWN_MS) {
+      session.lastAttackAt = now;
+      resolvePlayerAttack(room, session);
+    }
   }
 
   updateBots(room, dtSec);
@@ -420,7 +440,7 @@ function updateBots(room: Room, dtSec: number): void {
 
     const nextX = bot.x + bot.moveX * PLAYER_CONFIG.moveSpeed * dtSec;
     const nextY = bot.y + bot.moveY * PLAYER_CONFIG.moveSpeed * dtSec;
-    const resolved = resolveMoveWithCollision(nextX, nextY, bot.x, bot.y);
+    const resolved = resolveMoveWithCollision(room, nextX, nextY, bot.x, bot.y);
     bot.x = resolved.x;
     bot.y = resolved.y;
 
@@ -630,18 +650,132 @@ function isSafe(zone: ServerZoneState, x: number, y: number): boolean {
   return dx * dx + dy * dy <= zone.currentRadius * zone.currentRadius;
 }
 
-function resolveMoveWithCollision(nextX: number, nextY: number, prevX: number, prevY: number): { x: number; y: number } {
+function toggleNearbyDoor(room: Room, worldX: number, worldY: number): void {
+  const { x: cx, y: cy } = worldToTile(worldX, worldY, SERVER_MAP.tileSize);
+  const maxDistSq = 48 * 48;
+  let best: { x: number; y: number; d2: number } | null = null;
+
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const tx = cx + dx;
+      const ty = cy + dy;
+      if (tx < 0 || tx >= SERVER_MAP.width || ty < 0 || ty >= SERVER_MAP.height) continue;
+      if (SERVER_MAP.tiles[ty][tx] !== TileType.DOOR) continue;
+      const doorCenterX = tx * SERVER_MAP.tileSize + SERVER_MAP.tileSize / 2;
+      const doorCenterY = ty * SERVER_MAP.tileSize + SERVER_MAP.tileSize / 2;
+      const ddx = doorCenterX - worldX;
+      const ddy = doorCenterY - worldY;
+      const d2 = ddx * ddx + ddy * ddy;
+      if (d2 > maxDistSq) continue;
+      if (!best || d2 < best.d2) {
+        best = { x: tx, y: ty, d2 };
+      }
+    }
+  }
+
+  if (!best) return;
+  const key = `${best.x},${best.y}`;
+  if (room.openDoors.has(key)) {
+    room.openDoors.delete(key);
+  } else {
+    room.openDoors.add(key);
+  }
+}
+
+function resolvePlayerAttack(room: Room, attacker: Session): void {
+  if (!attacker.isAlive) return;
+
+  const candidates: Array<{
+    x: number;
+    y: number;
+    hpRef: { hp: number; isAlive: boolean; input?: InputPayload };
+    distance: number;
+    angleDelta: number;
+  }> = [];
+
+  for (const humanId of room.humans) {
+    const target = sessions.get(humanId);
+    if (!target || !target.isAlive || target.id === attacker.id) continue;
+    const dx = target.x - attacker.x;
+    const dy = target.y - attacker.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance > PLAYER_ATTACK_RANGE) continue;
+    const angleToTarget = Math.atan2(dy, dx);
+    const angleDelta = Math.abs(normalizeAngle(angleToTarget - attacker.rotation));
+    if (angleDelta > PLAYER_ATTACK_ANGLE_RAD) continue;
+    candidates.push({ x: target.x, y: target.y, hpRef: target, distance, angleDelta });
+  }
+
+  for (const bot of room.bots) {
+    if (!bot.isAlive) continue;
+    const dx = bot.x - attacker.x;
+    const dy = bot.y - attacker.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance > PLAYER_ATTACK_RANGE) continue;
+    const angleToTarget = Math.atan2(dy, dx);
+    const angleDelta = Math.abs(normalizeAngle(angleToTarget - attacker.rotation));
+    if (angleDelta > PLAYER_ATTACK_ANGLE_RAD) continue;
+    candidates.push({ x: bot.x, y: bot.y, hpRef: bot, distance, angleDelta });
+  }
+
+  if (candidates.length === 0) return;
+  candidates.sort((a, b) => (a.angleDelta - b.angleDelta) || (a.distance - b.distance));
+
+  const target = candidates.find((candidate) =>
+    hasLineOfSight(room, attacker.x, attacker.y, candidate.x, candidate.y)
+  );
+  if (!target) return;
+
+  room.pendingBotShots.push({
+    id: `${attacker.id}-${Date.now()}`,
+    fromX: attacker.x,
+    fromY: attacker.y,
+    toX: target.x,
+    toY: target.y,
+  });
+  target.hpRef.hp = Math.max(0, target.hpRef.hp - PLAYER_ATTACK_DAMAGE);
+  if (target.hpRef.hp <= 0) {
+    target.hpRef.isAlive = false;
+    if (target.hpRef.input) {
+      target.hpRef.input = emptyInput();
+    }
+  }
+}
+
+function hasLineOfSight(room: Room, fromX: number, fromY: number, toX: number, toY: number): boolean {
+  const dx = toX - fromX;
+  const dy = toY - fromY;
+  const distance = Math.hypot(dx, dy);
+  if (distance <= 0) return true;
+  const steps = Math.max(1, Math.ceil(distance / 8));
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    const x = fromX + dx * t;
+    const y = fromY + dy * t;
+    if (!isWalkableAt(room, x, y)) return false;
+  }
+  return true;
+}
+
+function normalizeAngle(angle: number): number {
+  let value = angle;
+  while (value > Math.PI) value -= Math.PI * 2;
+  while (value < -Math.PI) value += Math.PI * 2;
+  return value;
+}
+
+function resolveMoveWithCollision(room: Room, nextX: number, nextY: number, prevX: number, prevY: number): { x: number; y: number } {
   const xOnly = { x: nextX, y: prevY };
   const yOnly = { x: prevX, y: nextY };
   const both = { x: nextX, y: nextY };
 
-  if (isCircleWalkableAt(both.x, both.y, PLAYER_CONFIG.radius)) return both;
-  if (isCircleWalkableAt(xOnly.x, xOnly.y, PLAYER_CONFIG.radius)) return xOnly;
-  if (isCircleWalkableAt(yOnly.x, yOnly.y, PLAYER_CONFIG.radius)) return yOnly;
+  if (isCircleWalkableAt(room, both.x, both.y, PLAYER_CONFIG.radius)) return both;
+  if (isCircleWalkableAt(room, xOnly.x, xOnly.y, PLAYER_CONFIG.radius)) return xOnly;
+  if (isCircleWalkableAt(room, yOnly.x, yOnly.y, PLAYER_CONFIG.radius)) return yOnly;
   return { x: prevX, y: prevY };
 }
 
-function isCircleWalkableAt(centerX: number, centerY: number, radius: number): boolean {
+function isCircleWalkableAt(room: Room, centerX: number, centerY: number, radius: number): boolean {
   const points = [
     { x: centerX, y: centerY },
     { x: centerX - radius, y: centerY },
@@ -655,16 +789,16 @@ function isCircleWalkableAt(centerX: number, centerY: number, radius: number): b
   ];
 
   for (const point of points) {
-    if (!isWalkableAt(point.x, point.y)) return false;
+    if (!isWalkableAt(room, point.x, point.y)) return false;
   }
   return true;
 }
 
-function isWalkableAt(worldX: number, worldY: number): boolean {
+function isWalkableAt(room: Room, worldX: number, worldY: number): boolean {
   const { x, y } = worldToTile(worldX, worldY, SERVER_MAP.tileSize);
   if (x < 0 || x >= SERVER_MAP.width || y < 0 || y >= SERVER_MAP.height) return false;
   const tile = SERVER_MAP.tiles[y][x];
-  if (tile === TileType.DOOR) return false; // 서버는 문 상태를 아직 동기화하지 않음
+  if (tile === TileType.DOOR) return room.openDoors.has(`${x},${y}`);
   return TILE_PROPERTIES[tile].collision === 0;
 }
 
@@ -730,6 +864,7 @@ function broadcastSnapshot(room: Room): void {
     botCount: room.bots.length,
     zone: toSnapshotZone(room.zone),
     botShots: room.pendingBotShots,
+    openDoors: Array.from(room.openDoors),
     players,
   };
 
@@ -749,7 +884,7 @@ function send(socket: WebSocket, message: NetworkMessage): void {
 }
 
 function emptyInput(): InputPayload {
-  return { seq: 0, moveX: 0, moveY: 0, rotation: 0, fire: false, reload: false };
+  return { seq: 0, moveX: 0, moveY: 0, rotation: 0, fire: false, reload: false, interact: false };
 }
 
 function randomSpawn(): { x: number; y: number } {
@@ -768,7 +903,8 @@ function isInputPayload(payload: unknown): payload is InputPayload {
     typeof value.moveY === 'number' &&
     typeof value.rotation === 'number' &&
     typeof value.fire === 'boolean' &&
-    typeof value.reload === 'boolean'
+    typeof value.reload === 'boolean' &&
+    typeof value.interact === 'boolean'
   );
 }
 

@@ -225,6 +225,10 @@ export class Game {
   applyMultiplayerSnapshot(snapshot: SnapshotPayload): void {
     if (!this.isMultiplayerMode) return;
 
+    if (Array.isArray(snapshot.openDoors)) {
+      this.tileMap.syncOpenDoors(snapshot.openDoors);
+    }
+
     const maybeZone = (snapshot as unknown as { zone?: unknown }).zone;
     if (maybeZone && typeof maybeZone === 'object') {
       this.zone.syncFromNetwork(maybeZone as SnapshotPayload['zone']);
@@ -303,12 +307,8 @@ export class Game {
         name: snapshotPlayer.name,
       });
 
-      // 멀티에서 봇 데미지는 현재 클라이언트 시뮬레이션 기준으로 유지.
-      // 서버 스냅샷 hp를 매틱 덮어쓰면 맞아도 즉시 풀피로 복구되어 보임.
-      if (!isServerBot || !existed) {
-        player.hp = snapshotPlayer.hp;
-        player.isAlive = snapshotPlayer.isAlive;
-      }
+      player.hp = snapshotPlayer.hp;
+      player.isAlive = snapshotPlayer.isAlive;
     }
 
     for (const playerId of this.networkRemotePlayerIds) {
@@ -750,19 +750,18 @@ export class Game {
     // 입력 처리
     const input = this.inputManager.getInput();
 
-    if (this.isMultiplayerMode && this.multiplayerPhase !== 'playing') {
+    if (this.isMultiplayerMode) {
       const worldMouseX = input.mouseX + this.camera.x;
       const worldMouseY = input.mouseY + this.camera.y;
       this.localPlayer.lookAt(worldMouseX, worldMouseY);
       this.zone.tickNetworkTime(dt);
       this.updateNetworkRemotePlayers(dt);
+      for (const player of this.players.values()) {
+        player.update(dt);
+      }
+      this.updateEffects();
       return;
     }
-
-    if (this.isMultiplayerMode) {
-      this.zone.tickNetworkTime(dt);
-    }
-    this.updateNetworkRemotePlayers(dt);
 
     // 플레이어가 죽었으면 대부분의 행동 불가
     if (!this.localPlayer.isAlive) {

@@ -43,6 +43,16 @@ export class TileMap {
     return state ? state.isOpen : false;
   }
 
+  /** 네트워크 스냅샷의 열린 문 상태 동기화 */
+  syncOpenDoors(openDoors: string[]): void {
+    const openSet = new Set(openDoors);
+    for (const [key, state] of this.doorStates) {
+      const shouldOpen = openSet.has(key);
+      state.isOpen = shouldOpen;
+      state.targetOpacity = shouldOpen ? 0.3 : 1.0;
+    }
+  }
+
   /** 문 열기/닫기 토글 */
   toggleDoor(gridX: number, gridY: number): void {
     const state = this.doorStates.get(`${gridX},${gridY}`);

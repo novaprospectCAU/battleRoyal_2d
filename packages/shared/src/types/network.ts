@@ -127,6 +127,7 @@ export interface InputPayload {
   rotation: number;
   fire: boolean;
   reload: boolean;
+  interact: boolean;
 }
 
 /** 스냅샷 내 플레이어 상태 */
@@ -152,6 +153,7 @@ export interface SnapshotPayload {
   botCount: number;
   zone: SnapshotZonePayload;
   botShots: SnapshotBotShot[];
+  openDoors: string[];
   players: SnapshotPlayer[];
 }
 

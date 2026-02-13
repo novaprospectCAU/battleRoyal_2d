@@ -18,13 +18,23 @@ type NetInputState = {
   moveX: number;
   moveY: number;
   rotation: number;
+  fire: boolean;
+  reloadPressed: boolean;
+  interactPressed: boolean;
 };
 
 export function GameScreen({ onBack, mode, multiplayer }: GameScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
   const networkRef = useRef<NetworkClient | null>(null);
-  const inputRef = useRef<NetInputState>({ moveX: 0, moveY: 0, rotation: 0 });
+  const inputRef = useRef<NetInputState>({
+    moveX: 0,
+    moveY: 0,
+    rotation: 0,
+    fire: false,
+    reloadPressed: false,
+    interactPressed: false,
+  });
   const [networkState, setNetworkState] = useState<'idle' | 'connecting' | 'connected' | 'closed' | 'error'>('idle');
   const [playerId, setPlayerId] = useState<string>('-');
   const [roomCode, setRoomCode] = useState<string>('-');
@@ -126,9 +136,19 @@ export function GameScreen({ onBack, mode, multiplayer }: GameScreenProps) {
 
     const onKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
-      if (!['w', 'a', 's', 'd'].includes(key)) return;
-      pressed.add(key);
-      updateMoveInput();
+      if (['w', 'a', 's', 'd'].includes(key)) {
+        pressed.add(key);
+        updateMoveInput();
+        return;
+      }
+      if (key === 'r') {
+        inputRef.current.reloadPressed = true;
+        return;
+      }
+      if (key === 'e' || key === ' ') {
+        e.preventDefault();
+        inputRef.current.interactPressed = true;
+      }
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
@@ -147,9 +167,21 @@ export function GameScreen({ onBack, mode, multiplayer }: GameScreenProps) {
       inputRef.current.rotation = game.getAimRotationFromScreen(mx, my);
     };
 
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      inputRef.current.fire = true;
+    };
+
+    const onMouseUp = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      inputRef.current.fire = false;
+    };
+
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     canvas.addEventListener('mousemove', onMouseMove);
+    canvas.addEventListener('mousedown', onMouseDown);
+    canvas.addEventListener('mouseup', onMouseUp);
 
     const inputTimer = window.setInterval(() => {
       const input = inputRef.current;
@@ -157,9 +189,12 @@ export function GameScreen({ onBack, mode, multiplayer }: GameScreenProps) {
         moveX: input.moveX,
         moveY: input.moveY,
         rotation: input.rotation,
-        fire: false,
-        reload: false,
+        fire: input.fire,
+        reload: input.reloadPressed,
+        interact: input.interactPressed,
       });
+      input.reloadPressed = false;
+      input.interactPressed = false;
     }, 50);
 
     const pingTimer = window.setInterval(() => {
@@ -172,6 +207,8 @@ export function GameScreen({ onBack, mode, multiplayer }: GameScreenProps) {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       canvas.removeEventListener('mousemove', onMouseMove);
+      canvas.removeEventListener('mousedown', onMouseDown);
+      canvas.removeEventListener('mouseup', onMouseUp);
       networkClient.disconnect();
       networkRef.current = null;
       setNetworkState('idle');
