@@ -5,6 +5,10 @@ import {
   TICK_INTERVAL,
   ZONE_CONFIG,
   ZONE_PHASES,
+  TILE_PROPERTIES,
+  TileType,
+  createTestMap,
+  worldToTile,
   createMessage,
   parseMessage,
   serializeMessage,
@@ -22,6 +26,7 @@ const BOT_CHASE_RANGE = 360;
 const BOT_ATTACK_RANGE = 220;
 const BOT_ATTACK_DAMAGE = 8;
 const BOT_ATTACK_COOLDOWN_MS = 450;
+const SERVER_MAP = createTestMap();
 
 type Session = {
   id: string;
@@ -341,8 +346,11 @@ function stepRoomSimulation(room: Room, dtMs: number): void {
     const moveX = length > 0 ? input.moveX / length : 0;
     const moveY = length > 0 ? input.moveY / length : 0;
 
-    session.x += moveX * PLAYER_CONFIG.moveSpeed * dtSec;
-    session.y += moveY * PLAYER_CONFIG.moveSpeed * dtSec;
+    const nextX = session.x + moveX * PLAYER_CONFIG.moveSpeed * dtSec;
+    const nextY = session.y + moveY * PLAYER_CONFIG.moveSpeed * dtSec;
+    const resolved = resolveMoveWithCollision(nextX, nextY, session.x, session.y);
+    session.x = resolved.x;
+    session.y = resolved.y;
     session.rotation = input.rotation;
 
     session.x = clamp(session.x, 0, DEFAULT_GAME_CONFIG.mapWidth);
@@ -410,8 +418,11 @@ function updateBots(room: Room, dtSec: number): void {
       }
     }
 
-    bot.x += bot.moveX * PLAYER_CONFIG.moveSpeed * dtSec;
-    bot.y += bot.moveY * PLAYER_CONFIG.moveSpeed * dtSec;
+    const nextX = bot.x + bot.moveX * PLAYER_CONFIG.moveSpeed * dtSec;
+    const nextY = bot.y + bot.moveY * PLAYER_CONFIG.moveSpeed * dtSec;
+    const resolved = resolveMoveWithCollision(nextX, nextY, bot.x, bot.y);
+    bot.x = resolved.x;
+    bot.y = resolved.y;
 
     if (bot.x <= 0 || bot.x >= DEFAULT_GAME_CONFIG.mapWidth) {
       bot.moveX *= -1;
@@ -617,6 +628,44 @@ function isSafe(zone: ServerZoneState, x: number, y: number): boolean {
   const dx = x - zone.currentCenterX;
   const dy = y - zone.currentCenterY;
   return dx * dx + dy * dy <= zone.currentRadius * zone.currentRadius;
+}
+
+function resolveMoveWithCollision(nextX: number, nextY: number, prevX: number, prevY: number): { x: number; y: number } {
+  const xOnly = { x: nextX, y: prevY };
+  const yOnly = { x: prevX, y: nextY };
+  const both = { x: nextX, y: nextY };
+
+  if (isCircleWalkableAt(both.x, both.y, PLAYER_CONFIG.radius)) return both;
+  if (isCircleWalkableAt(xOnly.x, xOnly.y, PLAYER_CONFIG.radius)) return xOnly;
+  if (isCircleWalkableAt(yOnly.x, yOnly.y, PLAYER_CONFIG.radius)) return yOnly;
+  return { x: prevX, y: prevY };
+}
+
+function isCircleWalkableAt(centerX: number, centerY: number, radius: number): boolean {
+  const points = [
+    { x: centerX, y: centerY },
+    { x: centerX - radius, y: centerY },
+    { x: centerX + radius, y: centerY },
+    { x: centerX, y: centerY - radius },
+    { x: centerX, y: centerY + radius },
+    { x: centerX - radius * 0.7, y: centerY - radius * 0.7 },
+    { x: centerX + radius * 0.7, y: centerY - radius * 0.7 },
+    { x: centerX - radius * 0.7, y: centerY + radius * 0.7 },
+    { x: centerX + radius * 0.7, y: centerY + radius * 0.7 },
+  ];
+
+  for (const point of points) {
+    if (!isWalkableAt(point.x, point.y)) return false;
+  }
+  return true;
+}
+
+function isWalkableAt(worldX: number, worldY: number): boolean {
+  const { x, y } = worldToTile(worldX, worldY, SERVER_MAP.tileSize);
+  if (x < 0 || x >= SERVER_MAP.width || y < 0 || y >= SERVER_MAP.height) return false;
+  const tile = SERVER_MAP.tiles[y][x];
+  if (tile === TileType.DOOR) return false; // 서버는 문 상태를 아직 동기화하지 않음
+  return TILE_PROPERTIES[tile].collision === 0;
 }
 
 function toSnapshotZone(zone: ServerZoneState): SnapshotZonePayload {
